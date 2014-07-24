@@ -1,0 +1,1 @@
+exe gba : [ glob src/*.cpp ] ;
