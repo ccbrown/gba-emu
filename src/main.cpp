@@ -36,9 +36,8 @@ int main(int argc, const char* argv[]) {
 	cpu.mmu().attach(0x8000000, &rom, 0, 0x2000000);
 	cpu.setRegister(ARM7TDMI::kVirtualRegisterPC, 0x8000000);
 	
-	for (int i = 0; true; ++i) {
+	while (true) {
 		cpu.step();
-		printf("%u\n", i);
 	}
 	
 	return 0;

@@ -75,13 +75,13 @@ class ARM7TDMI {
 		};
 
 		enum Mode : uint8_t {
-			kModeUser = 0x10,
-			kModeFIQ = 0x11,
-			kModeIRQ = 0x12,
+			kModeUser       = 0x10,
+			kModeFIQ        = 0x11,
+			kModeIRQ        = 0x12,
 			kModeSupervisor = 0x13,
-			kModeAbort = 0x17,
-			kModeUndefined = 0x1b,
-			kModeSystem = 0x1f,
+			kModeAbort      = 0x17,
+			kModeUndefined  = 0x1b,
+			kModeSystem     = 0x1f,
 		};
 
 		enum PSRFlag : uint32_t {
@@ -89,7 +89,13 @@ class ARM7TDMI {
 			kPSRFlagZero      = (1u << 30),
 			kPSRFlagCarry     = (1u << 29),
 			kPSRFlagOverflow  = (1u << 28),
+			kPSRFlagThumb     = (1u <<  5),
 		};
+		
+		static const uint32_t kPSRMaskControl   = 0x000000ff;
+		static const uint32_t kPSRMaskExtension = 0x0000ff00;
+		static const uint32_t kPSRMaskStatus    = 0x00ff0000;
+		static const uint32_t kPSRMaskFlags     = 0xff000000;
 		
 		enum Condition : uint8_t {
 			kConditionEqual,
@@ -110,6 +116,13 @@ class ARM7TDMI {
 			kConditionNever
 		};
 		
+		enum ShiftType : uint8_t {
+			kShiftTypeLSL,
+			kShiftTypeLSR,
+			kShiftTypeASR,
+			kShiftTypeROR
+		};
+		
 		struct UnknownInstruction {};
 		
 		ARM7TDMI();
@@ -124,6 +137,10 @@ class ARM7TDMI {
 		uint32_t getRegister(VirtualRegister r) const { return *_virtualRegisters[r]; }
 		void setRegister(VirtualRegister r, uint32_t value) { *_virtualRegisters[r] = value; }
 
+		bool getCPSRFlag(PSRFlag flag) const { return getRegister(kVirtualRegisterCPSR) & flag; }
+		void setCPSRFlag(PSRFlag flag, bool set = true);
+		void clearCPSRFlag(PSRFlag flag) { setRegister(kVirtualRegisterCPSR, getRegister(kVirtualRegisterCPSR) & ~flag); }
+
 		MMU<uint32_t>& mmu() { return _mmu; }
 		
 		bool checkCondition(Condition condition) const;
@@ -132,9 +149,28 @@ class ARM7TDMI {
 		MMU<uint32_t> _mmu;
 		uint32_t* _virtualRegisters[kVirtualRegisterCount]{0};
 		uint32_t _physicalRegisters[kPhysicalRegisterCount]{0};
-		Mode _mode = kModeUndefined;
-		bool _isInThumbState = false;
 
-		void _stepARM();
-		void _stepThumb();
+		static const uint32_t kARMNOPcode = 0xe1a00000;
+
+		struct Instruction {
+			uint32_t opcode = kARMNOPcode;
+			bool isThumb = 0;
+		};
+		
+		Instruction _toDecode;
+		Instruction _toExecute;
+
+		void _executeARM(uint32_t opcode);
+		void _executeThumb(uint16_t opcode);
+
+		void _updateZNFlags(uint32_t n);
+		void _updateVirtualRegisters();
+
+		bool _getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2);		
+
+		static VirtualRegister ARMRn(uint32_t opcode);
+		static VirtualRegister ARMRd(uint32_t opcode);
+		static VirtualRegister ARMRs(uint32_t opcode);
+		static VirtualRegister ARMRm(uint32_t opcode);
+		static uint32_t Shift(uint32_t n, ShiftType type, uint32_t amount, bool* carry = nullptr);
 };
