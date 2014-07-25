@@ -166,7 +166,10 @@ class ARM7TDMI {
 		void _updateZNFlags(uint32_t n);
 		void _updateVirtualRegisters();
 
-		bool _getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2);		
+		bool _getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2);
+
+		bool _executeARMDataProcessing(uint32_t opcode);
+		bool _executeARMDataTransfer(uint32_t opcode);
 
 		static VirtualRegister ARMRn(uint32_t opcode);
 		static VirtualRegister ARMRd(uint32_t opcode);

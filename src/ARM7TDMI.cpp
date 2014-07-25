@@ -89,6 +89,8 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 	if (!checkCondition(static_cast<Condition>(opcode >> 28))) {
 		return;
 	}
+	
+	printf("%08x: ", opcode);
 
 	if ((opcode & 0x0f000000) == 0x0f000000) {
 		// SWI
@@ -127,16 +129,7 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 		return;
 	}
 	
-	if ((opcode & 0xdef0000) == 0x1a00000) {
-		// MOV
-		uint32_t op2 = 0;
-		if (_getARMDataProcessingOp2(opcode, &op2)) {
-			printf("MOV %08u to r%u\n", op2, ARMRd(opcode));
-			setRegister(ARMRd(opcode), op2);
-			_updateZNFlags(op2);
-			return;
-		}
-	}
+	if (_executeARMDataProcessing(opcode)) { return; }
 	
 	if ((opcode & 0xd900000) == 0x1000000) {
 		// PSR
@@ -180,6 +173,8 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 			return;
 		}
 	}
+	
+	if (_executeARMDataTransfer(opcode)) { return; }
 	
 	printf("unknown arm opcode %02x\n", opcode);
 	throw UnknownInstruction();
@@ -270,7 +265,7 @@ bool ARM7TDMI::_getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2) {
 						updateFlags = false;
 						break;
 					case kShiftTypeLSR:
-						*op2 = static_cast<uint32_t>(static_cast<int32_t>(n) >> 31);
+						*op2 = 0;
 						shiftCarry = BIT31(n);
 						break;
 					case kShiftTypeASR:
@@ -290,6 +285,109 @@ bool ARM7TDMI::_getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2) {
 		}
 	}
 
+	return true;
+}
+
+bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
+	if (opcode & 0xc000000) { return false; }
+	
+	uint32_t operation = BITFIELD_UINT32(opcode, 24, 21);
+	
+	uint32_t op2 = 0;
+	if (!_getARMDataProcessingOp2(opcode, &op2)) {
+		return false;
+	}
+	
+	bool updateFlags = BIT20(opcode);
+	
+	switch (operation) {
+		case 0x4: {
+			// ADD
+			printf("ADD r%u + %08u to r%u\n", ARMRn(opcode), op2, ARMRd(opcode));
+			uint32_t op1 = getRegister(ARMRn(opcode));
+			uint32_t result = op1 + op2;
+			setRegister(ARMRd(opcode), result);
+			if (updateFlags) {
+				setCPSRFlag(kPSRFlagCarry, result < op1);
+				setCPSRFlag(kPSRFlagOverflow, (op1 & 0x80000000) == (op2 & 0x80000000) && (op1 & 0x80000000) != (result & 0x80000000));
+				_updateZNFlags(result);
+			}
+			return true;
+		}
+		case 0xd: {
+			// MOV
+			printf("MOV %08u to r%u\n", op2, ARMRd(opcode));
+			setRegister(ARMRd(opcode), op2);
+			if (updateFlags) {
+				_updateZNFlags(op2);
+			}
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool ARM7TDMI::_executeARMDataTransfer(uint32_t opcode) {
+	if ((opcode & 0xc000000) != 0x4000000) { return false; }
+	
+	auto rd = ARMRd(opcode);
+	auto rn = ARMRn(opcode);
+
+	uint32_t base = getRegister(rn);
+	uint32_t offset = 0;
+		
+	if (BIT25(opcode)) {
+		// register offset shifted by immediate
+		if (BIT4(opcode)) { return false; }
+		offset = getRegister(ARMRm(opcode));
+		uint32_t shift = BITFIELD_UINT32(opcode, 11, 7);
+		auto shiftType = static_cast<ShiftType>(BITFIELD_UINT32(opcode, 6, 5));
+		if (shift == 0) {
+			switch (shiftType) {
+				case kShiftTypeLSL:
+					/* nop */
+					break;
+				case kShiftTypeLSR:
+					offset = 0;
+					break;
+				case kShiftTypeASR:
+					offset = static_cast<uint32_t>(static_cast<int32_t>(offset) >> 31);
+					break;
+				case kShiftTypeROR:
+					offset = (Shift(offset, kShiftTypeROR, 1) & 0x7fffffff) | (getCPSRFlag(kPSRFlagCarry) ? 0x80000000 : 0);
+					break;
+			}
+		} else {
+			offset = Shift(offset, shiftType, shift);
+		}
+	} else {
+		// immediate offset
+		offset = BITFIELD_UINT32(opcode, 11, 0);
+	}
+
+	uint32_t indexed = BIT23(opcode) ? (base - offset) : (base + offset);
+	uint32_t address = BIT24(opcode) ? base : indexed;
+	if (!(BIT24(opcode) && !BIT21(opcode))) {
+		// writeback
+		setRegister(rn, indexed);
+	}
+	if (BIT20(opcode)) {
+		printf("LDR %08x to r%u\n", address, rd);
+		if (BIT22(opcode)) {
+			setRegister(rd, mmu().load<uint8_t>(address));
+		} else {
+			setRegister(rd, mmu().load<uint32_t>(address));
+		}
+	} else {
+		printf("STR r%u at %08x\n", rd, address);
+		if (BIT22(opcode)) {
+			mmu().store<uint8_t>(address, static_cast<uint8_t>(getRegister(rd)));
+		} else {
+			mmu().store<uint32_t>(address, getRegister(rd));
+		}
+	}
+	
 	return true;
 }
 

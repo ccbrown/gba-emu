@@ -39,6 +39,30 @@ class MMU {
 			return it->second.memory->load(destination, address - it->first + it->second.offset, size);
 		}
 
+		template <typename T>
+		void store(AddressType address, T data) {
+			store(address, &data, static_cast<AddressType>(sizeof(T)));
+		}
+		
+		void store(AddressType address, const void* data, AddressType size) {
+			if (_attachedMemory.empty()) { throw AccessViolation(); }
+
+			auto it = _attachedMemory.lower_bound(address);
+
+			if (it->first != address) {
+				if (it == _attachedMemory.begin()) {
+					throw AccessViolation();
+				}
+				--it;
+			}
+			
+			if (address - it->first + size > it->second.size) {
+				throw AccessViolation();
+			}
+			
+			return it->second.memory->store(address - it->first + it->second.offset, data, size);
+		}
+		
 	private:
 		struct AttachedMemory {
 			AttachedMemory() {}
