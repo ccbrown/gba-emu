@@ -18,7 +18,7 @@ class ARM7TDMI {
 			kVirtualRegisterR10,
 			kVirtualRegisterR11,
 			kVirtualRegisterR12,
-			kVirtualRegisterR13,
+			kVirtualRegisterSP,
 			kVirtualRegisterLR,
 			kVirtualRegisterPC,
 			kVirtualRegisterCPSR,
@@ -40,7 +40,7 @@ class ARM7TDMI {
 			kPhysicalRegisterR10,
 			kPhysicalRegisterR11,
 			kPhysicalRegisterR12,
-			kPhysicalRegisterR13,
+			kPhysicalRegisterSP,
 			kPhysicalRegisterLR,
 			kPhysicalRegisterPC,
 			
@@ -49,29 +49,30 @@ class ARM7TDMI {
 			kPhysicalRegisterR10FIQ,
 			kPhysicalRegisterR11FIQ,
 			kPhysicalRegisterR12FIQ,
-			kPhysicalRegisterR13FIQ,
+			kPhysicalRegisterSPFIQ,
 			kPhysicalRegisterLRFIQ,
 			kPhysicalRegisterSPSRFIQ,
 
-			kPhysicalRegisterR13SVC,
+			kPhysicalRegisterSPSVC,
 			kPhysicalRegisterLRSVC,
 			kPhysicalRegisterSPSRSVC,
 
-			kPhysicalRegisterR13ABT,
+			kPhysicalRegisterSPABT,
 			kPhysicalRegisterLRABT,
 			kPhysicalRegisterSPSRABT,
 
-			kPhysicalRegisterR13IRQ,
+			kPhysicalRegisterSPIRQ,
 			kPhysicalRegisterLRIRQ,
 			kPhysicalRegisterSPSRIRQ,
 
-			kPhysicalRegisterR13UND,
+			kPhysicalRegisterSPUND,
 			kPhysicalRegisterLRUND,
 			kPhysicalRegisterSPSRUND,
 
 			kPhysicalRegisterCPSR,
 
-			kPhysicalRegisterCount
+			kPhysicalRegisterCount,
+			kPhysicalRegisterInvalid
 		};
 
 		enum Mode : uint8_t {
@@ -89,6 +90,8 @@ class ARM7TDMI {
 			kPSRFlagZero      = (1u << 30),
 			kPSRFlagCarry     = (1u << 29),
 			kPSRFlagOverflow  = (1u << 28),
+			kPSRFlagIRQ       = (1u <<  7),
+			kPSRFlagFIQ       = (1u <<  6),
 			kPSRFlagThumb     = (1u <<  5),
 		};
 		
@@ -123,6 +126,14 @@ class ARM7TDMI {
 			kShiftTypeROR
 		};
 		
+		enum ALUOperation : uint8_t {
+			kALUOperationAND,
+			kALUOperationEOR,
+			kALUOperationSUB,
+			kALUOperationADD,
+			kALUOperationMVN,
+		};
+		
 		struct UnknownInstruction {};
 		
 		ARM7TDMI();
@@ -130,16 +141,18 @@ class ARM7TDMI {
 		void step();
 
 		void branch(uint32_t address);
-		void branchWithLink(uint32_t address);
 
 		void setMode(Mode mode);
 
-		uint32_t getRegister(VirtualRegister r) const { return *_virtualRegisters[r]; }
-		void setRegister(VirtualRegister r, uint32_t value) { *_virtualRegisters[r] = value; }
+		uint32_t getRegister(VirtualRegister r) const { return _physicalRegisters[_virtualRegisters[r]]; }
+		void setRegister(VirtualRegister r, uint32_t value) { _physicalRegisters[_virtualRegisters[r]] = value; }
+
+		uint32_t getRegister(PhysicalRegister r) const { return _physicalRegisters[r]; }
+		void setRegister(PhysicalRegister r, uint32_t value) { _physicalRegisters[r] = value; }
 
 		bool getCPSRFlag(PSRFlag flag) const { return getRegister(kVirtualRegisterCPSR) & flag; }
-		void setCPSRFlag(PSRFlag flag, bool set = true);
-		void clearCPSRFlag(PSRFlag flag) { setRegister(kVirtualRegisterCPSR, getRegister(kVirtualRegisterCPSR) & ~flag); }
+		void setCPSRFlags(uint32_t flags, bool set = true);
+		void clearCPSRFlags(uint32_t flags) { setRegister(kVirtualRegisterCPSR, getRegister(kVirtualRegisterCPSR) & ~flags); }
 
 		MMU<uint32_t>& mmu() { return _mmu; }
 		
@@ -147,7 +160,7 @@ class ARM7TDMI {
 
 	private:	
 		MMU<uint32_t> _mmu;
-		uint32_t* _virtualRegisters[kVirtualRegisterCount]{0};
+		PhysicalRegister _virtualRegisters[kVirtualRegisterCount];
 		uint32_t _physicalRegisters[kPhysicalRegisterCount]{0};
 
 		static const uint32_t kARMNOPcode = 0xe1a00000;
@@ -164,16 +177,30 @@ class ARM7TDMI {
 		void _executeThumb(uint16_t opcode);
 
 		void _updateZNFlags(uint32_t n);
+
+		void _branchWithLink(uint32_t address);
+		void _flushPipeline();
+
 		void _updateVirtualRegisters();
 
 		bool _getARMDataProcessingOp2(uint32_t opcode, uint32_t* op2);
 
 		bool _executeARMDataProcessing(uint32_t opcode);
 		bool _executeARMDataTransfer(uint32_t opcode);
+		bool _executeARMBlockTransfer(uint32_t opcode);
+		
+		bool _executeThumbALUOp(uint16_t opcode);
+		bool _executeThumbHighRegisterOp(uint16_t opcode);
+		
+		uint32_t _aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool updateFlags = true);
+
+		PhysicalRegister _physicalRegister(VirtualRegister r, bool forceUserMode = false) const;
 
 		static VirtualRegister ARMRn(uint32_t opcode);
 		static VirtualRegister ARMRd(uint32_t opcode);
 		static VirtualRegister ARMRs(uint32_t opcode);
 		static VirtualRegister ARMRm(uint32_t opcode);
+
 		static uint32_t Shift(uint32_t n, ShiftType type, uint32_t amount, bool* carry = nullptr);
+		static uint32_t ShiftSpecial(uint32_t n, ShiftType type, uint32_t amount, bool* carry);
 };
