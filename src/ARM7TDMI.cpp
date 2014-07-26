@@ -883,6 +883,30 @@ bool ARM7TDMI::_executeThumbALUOp(uint16_t opcode) {
 			setRegister(rd, result);
 			return true;
 		}
+		case 0x2: {
+			auto result = _aluOperation(kALUOperationLSL, getRegister(rd), getRegister(rs));
+			printf("LSL r%u = r%u lsl r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0x3: {
+			auto result = _aluOperation(kALUOperationLSR, getRegister(rd), getRegister(rs));
+			printf("LSR r%u = r%u lsr r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0x4: {
+			auto result = _aluOperation(kALUOperationASR, getRegister(rd), getRegister(rs));
+			printf("ASR r%u = r%u asr r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0x7: {
+			auto result = _aluOperation(kALUOperationROR, getRegister(rd), getRegister(rs));
+			printf("ROR r%u = r%u ror r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
 		case 0x8:
 			printf("TST r%u & r%u\n", rd, rs);
 			_aluOperation(kALUOperationAND, getRegister(rd), getRegister(rs));
@@ -1017,6 +1041,42 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			}
 			return result;
 		}
+		case kALUOperationROR: {
+			bool carry = getCPSRFlag(kPSRFlagCarry);
+			uint32_t result = Shift(a, kShiftTypeROR, b, &carry);
+			if (updateFlags) {
+				_updateZNFlags(result);
+				setCPSRFlags(kPSRFlagCarry, carry);
+			}
+			return result;
+		}
+		case kALUOperationLSL: {
+			bool carry = getCPSRFlag(kPSRFlagCarry);
+			uint32_t result = Shift(a, kShiftTypeLSL, b, &carry);
+			if (updateFlags) {
+				_updateZNFlags(result);
+				setCPSRFlags(kPSRFlagCarry, carry);
+			}
+			return result;
+		}
+		case kALUOperationLSR: {
+			bool carry = getCPSRFlag(kPSRFlagCarry);
+			uint32_t result = Shift(a, kShiftTypeLSR, b, &carry);
+			if (updateFlags) {
+				_updateZNFlags(result);
+				setCPSRFlags(kPSRFlagCarry, carry);
+			}
+			return result;
+		}
+		case kALUOperationASR: {
+			bool carry = getCPSRFlag(kPSRFlagCarry);
+			uint32_t result = Shift(a, kShiftTypeASR, b, &carry);
+			if (updateFlags) {
+				_updateZNFlags(result);
+				setCPSRFlags(kPSRFlagCarry, carry);
+			}
+			return result;
+		}
 		default:
 			assert(false);
 	}
@@ -1054,6 +1114,8 @@ ARM7TDMI::VirtualRegister ARM7TDMI::ARMRm(uint32_t opcode) {
 }
 
 uint32_t ARM7TDMI::Shift(uint32_t n, ARM7TDMI::ShiftType type, uint32_t amount, bool* carry) {
+	if (!amount) { return n; }
+	
 	switch (type) {
 		case kShiftTypeLSL:
 			if (carry) { *carry = n & (1 << (32 - amount)); }
