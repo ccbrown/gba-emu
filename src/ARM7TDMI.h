@@ -132,6 +132,8 @@ class ARM7TDMI {
 			kALUOperationSUB,
 			kALUOperationADD,
 			kALUOperationMVN,
+			kALUOperationORR,
+			kALUOperationBIC,
 		};
 		
 		struct UnknownInstruction {};
