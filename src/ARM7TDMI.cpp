@@ -465,7 +465,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 		// load or store with immediate offset
 		auto rb = BITFIELD_REGISTER(opcode, 5, 3);
 		auto rd = BITFIELD_REGISTER(opcode, 2, 0);
-		auto offset = BITFIELD_UINT32(opcode, 10, 6) << 1;
+		auto offset = BITFIELD_UINT32(opcode, 10, 6);
 		if (!BIT12(opcode)) {
 			// word
 			offset <<= 2;

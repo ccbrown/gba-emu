@@ -3,6 +3,8 @@
 #include "ARM7TDMI.h"
 #include "Memory.h"
 
+#include "GBAVideoController.h"
+
 class GameBoyAdvance {
 	public:
 		GameBoyAdvance();
@@ -14,16 +16,12 @@ class GameBoyAdvance {
 		
 	private:
 		ARM7TDMI _cpu;
+		GBAVideoController _videoController;
 
 		// general memory
 		Memory<uint32_t> _systemROM{0x4000, Memory<uint32_t>::kFlagReadOnly};
 		Memory<uint32_t> _onBoardRAM{0x1000000};
 		Memory<uint32_t> _onChipRAM{0x1000000};
-
-		// display memory
-		Memory<uint32_t> _paletteRAM{0x400};
-		Memory<uint32_t> _videoRAM{0x18000};
-		Memory<uint32_t> _objectAttributeRAM{0x400};
 
 		// gamepak memory
 		Memory<uint32_t> _gamePakROM{0x2000000, Memory<uint32_t>::kFlagReadOnly};
