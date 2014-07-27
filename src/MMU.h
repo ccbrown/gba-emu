@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Memory.h"
+#include "MemoryInterface.h"
 
 #include <map>
 
@@ -9,10 +9,10 @@ class MMU {
 	public:
 		struct AccessViolation {};
 	
-		void attach(AddressType address, Memory<AddressType>* memory, AddressType offset, AddressType size) {
+		void attach(AddressType address, MemoryInterface<AddressType>* memory, AddressType offset, AddressType size) {
 			_attachedMemory[address] = AttachedMemory(memory, offset, size);
 		}
-		
+
 		template <typename T>
 		T load(AddressType address) {
 			T ret;
@@ -66,10 +66,10 @@ class MMU {
 	private:
 		struct AttachedMemory {
 			AttachedMemory() {}
-			AttachedMemory(Memory<AddressType>* memory, AddressType offset, AddressType size)
+			AttachedMemory(MemoryInterface<AddressType>* memory, AddressType offset, AddressType size)
 				: memory(memory), offset(offset), size(size) {}
 			
-			Memory<AddressType>* memory = nullptr;
+			MemoryInterface<AddressType>* memory = nullptr;
 			AddressType offset = 0;
 			AddressType size = 0;
 		};

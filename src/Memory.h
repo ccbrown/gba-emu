@@ -4,8 +4,10 @@
 #include <cstdlib>
 #include <stdint.h>
 
+#include "MemoryInterface.h"
+
 template <typename AddressType>
-class Memory {
+class Memory : public MemoryInterface<AddressType> {
 	public:
 		enum {
 			kFlagReadOnly = (1 << 0),
@@ -15,7 +17,7 @@ class Memory {
 		struct ReadOnlyViolation {};
 
 		Memory(AddressType size, int flags = 0) : _size(size), _flags(flags) {
-			_storage = malloc(size);
+			_storage = calloc(size, 1);
 		}
 		
 		~Memory() {
@@ -24,12 +26,12 @@ class Memory {
 		
 		AddressType size() const { return _size; }
 
-		void load(void* destination, AddressType address, AddressType size) const {
+		void load(void* destination, AddressType address, AddressType size) const override {
 			if (address + size > _size) { throw AccessViolation(); }
 			memcpy(destination, reinterpret_cast<char*>(_storage) + address, size);
 		}
 
-		void store(AddressType address, const void* data, AddressType size) {
+		void store(AddressType address, const void* data, AddressType size) override {
 			if (_flags & kFlagReadOnly) { throw ReadOnlyViolation(); }
 			if (address + size > _size) { throw AccessViolation(); }
 			memcpy(reinterpret_cast<char*>(_storage) + address, data, size);

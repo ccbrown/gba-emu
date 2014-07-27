@@ -138,6 +138,9 @@ class ARM7TDMI {
 			kALUOperationLSL,
 			kALUOperationLSR,
 			kALUOperationASR,
+			kALUOperationMUL,
+			kALUOperationADC,
+			kALUOperationSBC,
 		};
 		
 		struct UnknownInstruction {};
@@ -145,6 +148,8 @@ class ARM7TDMI {
 		ARM7TDMI();
 		
 		void step();
+		
+		void reset();
 
 		void branch(uint32_t address);
 

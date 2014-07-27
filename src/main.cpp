@@ -25,7 +25,6 @@ int main(int argc, const char* argv[]) {
 		gba.loadGamePak(fileContents.data(), fileContents.size());
 	}
 
-	gba.hardReset();
 	gba.run();
 	
 	return 0;

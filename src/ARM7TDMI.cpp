@@ -12,8 +12,7 @@ ARM7TDMI::ARM7TDMI() {
 		_virtualRegisters[kVirtualRegisterR0 + i] = static_cast<PhysicalRegister>(kPhysicalRegisterR0 + i);
 	}	
 	_virtualRegisters[kVirtualRegisterCPSR] = kPhysicalRegisterCPSR;
-	setRegister(kVirtualRegisterCPSR, 0 | kModeSupervisor);
-	_updateVirtualRegisters();
+	reset();
 }
 
 void ARM7TDMI::step() {
@@ -40,6 +39,12 @@ void ARM7TDMI::step() {
 		setRegister(kVirtualRegisterPC, pc + 4);
 		_toDecode.isThumb = false;
 	}
+}
+
+void ARM7TDMI::reset() {
+	setRegister(kVirtualRegisterCPSR, 0 | kModeSupervisor);
+	_updateVirtualRegisters();
+	setRegister(kVirtualRegisterPC, 0);
 }
 
 void ARM7TDMI::branch(uint32_t address) {
@@ -225,7 +230,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 			}
 			if (BIT8(opcode)) {
 				printf("pc ");
-				setRegister(kVirtualRegisterPC, mmu().load<LittleEndian<uint32_t>>(stack));
+				setRegister(kVirtualRegisterPC, mmu().load<LittleEndian<uint32_t>>(stack) & ~1);
 				_flushPipeline();
 				stack += 4;
 			}
@@ -253,9 +258,13 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 		auto rd = BITFIELD_REGISTER(opcode, 10, 8);
 		auto offset = BITFIELD_UINT32(opcode, 7, 0) << 2;
 		if (BIT11(opcode)) {
-			setRegister(rd, getRegister(kVirtualRegisterSP) + offset);
+			auto result = getRegister(kVirtualRegisterSP) + offset;
+			printf("ADD r%u = sp + %08x = %08x\n", rd, offset, result);
+			setRegister(rd, result);
 		} else {
-			setRegister(rd, (getRegister(kVirtualRegisterPC) & ~2) + offset);
+			auto result = (getRegister(kVirtualRegisterPC) & ~2) + offset;
+			printf("ADD r%u = (pc & ~2) + %08x = %08x\n", rd, offset, result);
+			setRegister(rd, result);
 		}
 		return;
 	}
@@ -526,7 +535,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 	if ((opcode & 0xf000) == 0x9000) {
 		// load / store SP-relative
 		auto rd = BITFIELD_REGISTER(opcode, 10, 8);
-		auto offset = BITFIELD_UINT32(opcode, 7, 0);
+		auto offset = BITFIELD_UINT32(opcode, 7, 0) << 2;
 		if (BIT11(opcode)) {
 			printf("LDR r%u from sp + %08x\n", rd, offset);
 			setRegister(rd, mmu().load<LittleEndian<uint32_t>>(getRegister(kVirtualRegisterSP) + offset));
@@ -702,6 +711,24 @@ bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
 			setRegister(rd, result);
 			break;
 		}
+		case 0x5: {
+			uint32_t result = _aluOperation(kALUOperationADC, getRegister(ARMRn(opcode)), op2, updateFlags);
+			printf("ADC r%u = r%u + %08x + c = %08x\n", rd, ARMRn(opcode), op2, result);
+			setRegister(rd, result);
+			break;
+		}
+		case 0x6: {
+			uint32_t result = _aluOperation(kALUOperationSBC, getRegister(ARMRn(opcode)), op2, updateFlags);
+			printf("SBC r%u = r%u - %08x + c - 1 = %08x\n", rd, ARMRn(opcode), op2, result);
+			setRegister(rd, result);
+			break;
+		}
+		case 0x7: {
+			uint32_t result = _aluOperation(kALUOperationSBC, op2, getRegister(ARMRn(opcode)), updateFlags);
+			printf("RSC r%u = %08x - r%u + c - 1 = %08x\n", rd, op2, ARMRn(opcode), result);
+			setRegister(rd, result);
+			break;
+		}
 		case 0x8:
 			if (!updateFlags || rd != kVirtualRegisterR0) { return false; }
 			printf("TST r%u & %08x\n", ARMRn(opcode), op2);
@@ -757,49 +784,100 @@ bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
 }
 
 bool ARM7TDMI::_executeARMDataTransfer(uint32_t opcode) {
-	if ((opcode & 0xc000000) != 0x4000000) { return false; }
-	
+	if ((opcode & 0xc000000) != 0x4000000 && (opcode & 0xe000000) != 0) { return false; }
+
 	auto rd = ARMRd(opcode);
-	auto rdp = _physicalRegister(rd, !BIT24(opcode) && BIT21(opcode));
 	auto rn = ARMRn(opcode);
 
 	uint32_t base = getRegister(rn);
 	uint32_t offset = 0;
-		
-	if (BIT25(opcode)) {
-		// register offset shifted by immediate
-		if (BIT4(opcode)) { return false; }
-		offset = getRegister(ARMRm(opcode));
-		uint32_t shift = BITFIELD_UINT32(opcode, 11, 7);
-		auto shiftType = static_cast<ShiftType>(BITFIELD_UINT32(opcode, 6, 5));
-		bool carry = getCPSRFlag(kPSRFlagCarry);
-		offset = ShiftSpecial(offset, shiftType, shift, &carry);
+
+	if ((opcode & 0xc000000) == 0x4000000) {
+		if (BIT25(opcode)) {
+			// register offset shifted by immediate
+			if (BIT4(opcode)) { return false; }
+			offset = getRegister(ARMRm(opcode));
+			uint32_t shift = BITFIELD_UINT32(opcode, 11, 7);
+			auto shiftType = static_cast<ShiftType>(BITFIELD_UINT32(opcode, 6, 5));
+			bool carry = getCPSRFlag(kPSRFlagCarry);
+			offset = ShiftSpecial(offset, shiftType, shift, &carry);
+		} else {
+			// immediate offset
+			offset = BITFIELD_UINT32(opcode, 11, 0);
+		}
 	} else {
-		// immediate offset
-		offset = BITFIELD_UINT32(opcode, 11, 0);
+		if (!BIT4(opcode) || !BIT7(opcode)) { return false; }
+		if (!BIT24(opcode) && BIT21(opcode)) { return false; }
+
+		if (BIT22(opcode)) {
+			// immediate offset
+			offset = (BITFIELD_UINT32(opcode, 11, 8) << 4) | BITFIELD_UINT32(opcode, 3, 0);
+		} else {
+			// register offset
+			if (BITFIELD_UINT32(opcode, 11, 8)) { return false; }
+			offset = getRegister(ARMRm(opcode));
+		}
 	}
 
 	uint32_t indexed = BIT23(opcode) ? (base + offset) : (base - offset);
-	if (!(BIT24(opcode) && !BIT21(opcode))) {
+	if (!BIT24(opcode) || BIT21(opcode)) {
 		// writeback
 		setRegister(rn, indexed);
 	}
-
+	
 	uint32_t address = BIT24(opcode) ? indexed : base;
+	
+	if ((opcode & 0xc000000) == 0x4000000) {
+		auto rdp = _physicalRegister(rd, !BIT24(opcode) && BIT21(opcode));
 
-	if (BIT20(opcode)) {
-		printf("LDR r%u from %08x\n", rd, address);
-		if (BIT22(opcode)) {
-			setRegister(rdp, mmu().load<uint8_t>(address));
+		if (BIT20(opcode)) {
+			if (BIT22(opcode)) {
+				printf("LDR r%u from byte at %08x\n", rd, address);
+				setRegister(rdp, mmu().load<uint8_t>(address));
+			} else {
+				printf("LDR r%u from %08x\n", rd, address);
+				setRegister(rdp, mmu().load<LittleEndian<uint32_t>>(address));
+			}
 		} else {
-			setRegister(rdp, mmu().load<LittleEndian<uint32_t>>(address));
+			if (BIT22(opcode)) {
+				printf("STR r%u to byte at %08x\n", rd, address);
+				mmu().store<uint8_t>(address, static_cast<uint8_t>(getRegister(rdp)));
+			} else {
+				printf("STR r%u to %08x\n", rd, address);
+				mmu().store<LittleEndian<uint32_t>>(address, getRegister(rdp));
+			}
 		}
 	} else {
-		printf("STR r%u to %08x\n", rd, address);
-		if (BIT22(opcode)) {
-			mmu().store<uint8_t>(address, static_cast<uint8_t>(getRegister(rdp)));
+		if (BIT20(opcode)) {
+			if (BIT6(opcode)) {
+				if (BIT5(opcode)) {
+					printf("LDR r%u from signed halfword at %08x\n", rd, address);
+					setRegister(rd, static_cast<uint32_t>(mmu().load<LittleEndian<int16_t>>(address)));
+				} else {
+					printf("LDR r%u from signed byte at %08x\n", rd, address);
+					setRegister(rd, static_cast<uint32_t>(mmu().load<int8_t>(address)));
+				}
+			} else if (BIT5(opcode)) {
+				printf("LDR r%u from halfword at %08x\n", rd, address);
+				setRegister(rd, static_cast<uint32_t>(mmu().load<LittleEndian<uint16_t>>(address)));
+			} else {
+				return false;
+			}
+		} else if (BIT6(opcode)) {
+			if (BIT5(opcode)) {
+				printf("STR r%u, r%u to doubleword at %08x\n", rd, rd + 1, address);
+				mmu().store<LittleEndian<uint32_t>>(address, getRegister(rd));
+				mmu().store<LittleEndian<uint32_t>>(address, getRegister(static_cast<VirtualRegister>(rd + 1)));
+			} else {
+				printf("LDR r%u, r%u from doubleword at %08x\n", rd, rd + 1, address);
+				setRegister(rd, mmu().load<LittleEndian<uint32_t>>(address));
+				setRegister(static_cast<VirtualRegister>(rd + 1), mmu().load<LittleEndian<uint32_t>>(address + 4));
+			}
+		} else if (BIT5(opcode)) {
+			printf("STR r%u to halfword at %08x\n", rd, address);
+			mmu().store<LittleEndian<uint16_t>>(address, static_cast<uint16_t>(getRegister(rd)));
 		} else {
-			mmu().store<LittleEndian<uint32_t>>(address, getRegister(rdp));
+			return false;
 		}
 	}
 	
@@ -901,6 +979,18 @@ bool ARM7TDMI::_executeThumbALUOp(uint16_t opcode) {
 			setRegister(rd, result);
 			return true;
 		}
+		case 0x5: {
+			auto result = _aluOperation(kALUOperationADC, getRegister(rd), getRegister(rs));
+			printf("ADC r%u = r%u + r%u + c = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0x6: {
+			auto result = _aluOperation(kALUOperationSBC, getRegister(rd), getRegister(rs));
+			printf("SBC r%u = r%u - r%u + c - 1 = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
 		case 0x7: {
 			auto result = _aluOperation(kALUOperationROR, getRegister(rd), getRegister(rs));
 			printf("ROR r%u = r%u ror r%u = %08x\n", rd, rd, rs, result);
@@ -911,6 +1001,12 @@ bool ARM7TDMI::_executeThumbALUOp(uint16_t opcode) {
 			printf("TST r%u & r%u\n", rd, rs);
 			_aluOperation(kALUOperationAND, getRegister(rd), getRegister(rs));
 			return true;
+		case 0x9: {
+			auto result = _aluOperation(kALUOperationSUB, 0, getRegister(rs));
+			printf("NEG r%u = 0 - r%u = %08x\n", rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
 		case 0xa:
 			printf("CMP r%u - r%u\n", rd, rs);
 			_aluOperation(kALUOperationSUB, getRegister(rd), getRegister(rs));
@@ -922,6 +1018,18 @@ bool ARM7TDMI::_executeThumbALUOp(uint16_t opcode) {
 		case 0xc: {
 			auto result = _aluOperation(kALUOperationORR, getRegister(rd), getRegister(rs));
 			printf("ORR r%u = r%u | r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0xd: {
+			auto result = _aluOperation(kALUOperationMUL, getRegister(rd), getRegister(rs));
+			printf("MUL r%u = r%u * r%u = %08x\n", rd, rd, rs, result);
+			setRegister(rd, result);
+			return true;
+		}
+		case 0xe: {
+			auto result = _aluOperation(kALUOperationBIC, getRegister(rd), getRegister(rs));
+			printf("BIC r%u = r%u & ~r%u = %08x\n", rd, rd, rs, result);
 			setRegister(rd, result);
 			return true;
 		}
@@ -1010,10 +1118,28 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			}
 			return result;
 		}
+		case kALUOperationSBC: {
+			uint32_t result = a - b - (getCPSRFlag(kPSRFlagCarry) ? 0 : 1);
+			if (updateFlags) {
+				setCPSRFlags(kPSRFlagCarry, result > a || (result == a && b != 0));
+				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) != (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
+				_updateZNFlags(result);
+			}
+			return result;
+		}
 		case kALUOperationADD: {
 			uint32_t result = a + b;
 			if (updateFlags) {
 				setCPSRFlags(kPSRFlagCarry, result < a);
+				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) == (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
+				_updateZNFlags(result);
+			}
+			return result;
+		}
+		case kALUOperationADC: {
+			uint32_t result = a + b + (getCPSRFlag(kPSRFlagCarry) ? 1 : 0);
+			if (updateFlags) {
+				setCPSRFlags(kPSRFlagCarry, result < a || (result == a && b != 0));
 				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) == (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
 				_updateZNFlags(result);
 			}
@@ -1036,6 +1162,13 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 		}
 		case kALUOperationBIC: {
 			uint32_t result = a & ~b;
+			if (updateFlags) {
+				_updateZNFlags(result);
+			}
+			return result;
+		}
+		case kALUOperationMUL: {
+			uint32_t result = a * b;
 			if (updateFlags) {
 				_updateZNFlags(result);
 			}
