@@ -23,19 +23,39 @@ class GBAVideoController {
 		void render();
 
 		uint16_t currentScanline() const { return _refreshCoordinate.y; }
-		void setPixel(uint16_t x, uint16_t y, uint8_t red, uint8_t green, uint8_t blue);
 		
-		enum StatusRegisterFlag : uint16_t {
-			kStatusRegisterFlagVBlank                 = (1 << 0),
-			kStatusRegisterFlagHBlank                 = (1 << 1),
-			kStatusRegisterFlagVCounter               = (1 << 2),
-			kStatusRegisterFlagVBlankIRQEnable        = (1 << 3),
-			kStatusRegisterFlagHBlankIRQEnable        = (1 << 4),
-			kStatusRegisterFlagVCounterMatchIRQEnable = (1 << 5),
+		enum StatusFlag : uint16_t {
+			kStatusFlagVBlank                 = (1 << 0),
+			kStatusFlagHBlank                 = (1 << 1),
+			kStatusFlagVCounter               = (1 << 2),
+			kStatusFlagVBlankIRQEnable        = (1 << 3),
+			kStatusFlagHBlankIRQEnable        = (1 << 4),
+			kStatusFlagVCounterMatchIRQEnable = (1 << 5),
 		};
 		
 		uint16_t statusRegister() const { return _statusRegister; }
 		void updateStatusRegister(uint16_t value) { _statusRegister = (_statusRegister & 0x0007) | (value & 0xfff8); }
+
+		enum ControlFlag : uint16_t {
+			kControlFlagCGBMode                = (1 <<  3),
+			kControlFlagDisplayFrame           = (1 <<  4),
+			kControlFlagHBlankIntervalFree     = (1 <<  5),
+			kControlFlagOBJMapping             = (1 <<  6),
+			kControlFlagForcedBlank            = (1 <<  7),
+			kControlFlagBG0Enable              = (1 <<  8),
+			kControlFlagBG1Enable              = (1 <<  9),
+			kControlFlagBG2Enable              = (1 << 10),
+			kControlFlagBG3Enable              = (1 << 11),
+			kControlFlagOBJEnable              = (1 << 12),
+			kControlFlagWindow0Enable          = (1 << 13),
+			kControlFlagWindow1Enable          = (1 << 14),
+			kControlFlagOBJWindowEnable        = (1 << 15),
+		};
+		
+		static const uint16_t kControlMaskBGMode = 0x0007;
+
+		uint16_t controlRegister() const { return _controlRegister; }
+		void setControlRegister(uint16_t value) { _controlRegister = value; }
 
 	private:
 		GameBoyAdvance* const _gba = nullptr;
@@ -47,6 +67,7 @@ class GBAVideoController {
 		GLuint _texture = GL_INVALID_VALUE;
 		
 		uint16_t _statusRegister = 0;
+		uint16_t _controlRegister = 0;
 		
 		std::mutex _renderMutex;
 		
@@ -64,15 +85,18 @@ class GBAVideoController {
 				}
 			};
 		};
-		
+
 		struct Pixel {
 			Pixel() : red(0), green(0), blue(0) {}
+			Pixel(uint16_t packed) : red((packed >> 10) & 0x1f), green((packed >> 5) & 0x1f), blue(packed & 0x1f) {}
 			Pixel(uint8_t red, uint8_t green, uint8_t blue) : red(red), green(green), blue(blue) {}
 			uint8_t red, green, blue;
 		};
 		
 		PixelCoordinate _refreshCoordinate{0, 0};
-			
+
+		void _refreshPixel(const PixelCoordinate& coordinate, const Pixel& pixel);
+
 		int _cycleCounter = 0;
 		
 		// protected by _renderMutex

@@ -2,6 +2,8 @@
 
 #include "GameBoyAdvance.h"
 
+#include "FixedEndian.h"
+
 GBAVideoController::GBAVideoController(GameBoyAdvance* gba) : _gba(gba) {
 	_gba->cpu().mmu().attach(0x05000000, &_paletteRAM, 0, _paletteRAM.size());
 	_gba->cpu().mmu().attach(0x06000000, &_videoRAM, 0, _videoRAM.size());
@@ -17,11 +19,6 @@ GBAVideoController::GBAVideoController(GameBoyAdvance* gba) : _gba(gba) {
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	
-	setPixel( 20,  20, 255,   0,   0);
-	setPixel(220,  20,   0, 255,   0);
-	setPixel(220, 140,   0,   0, 255);
-	setPixel( 20, 140, 255, 255, 255);
 }
 
 GBAVideoController::~GBAVideoController() {
@@ -35,6 +32,38 @@ void GBAVideoController::cycle() {
 		_cycleCounter = 0;
 	}
 	
+	// refresh the pixel
+
+	if (_refreshCoordinate.x >= 240 || _refreshCoordinate.y >= 160 || (_controlRegister & kControlFlagForcedBlank)) {
+		// blank
+		_refreshPixel(_refreshCoordinate, Pixel(255, 255, 255));
+	} else {
+		switch (_controlRegister & kControlMaskBGMode) {
+			case 0:
+				_refreshPixel(_refreshCoordinate, Pixel(70, 0, 0));
+				break;
+			case 1:
+				_refreshPixel(_refreshCoordinate, Pixel(0, 70, 0));
+				break;
+			case 2:
+				_refreshPixel(_refreshCoordinate, Pixel(0, 0, 70));
+				break;
+			case 3: { // single frame bitmap
+				auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + _refreshCoordinate.x + _refreshCoordinate.y * 240;
+				_refreshPixel(_refreshCoordinate, pixel);
+				break;
+			}
+			case 4: // two frame bitmap
+			case 5: {
+				auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + _refreshCoordinate.x + _refreshCoordinate.y * 240 + ((_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
+				_refreshPixel(_refreshCoordinate, pixel);
+				break;
+			}
+			default:
+				_refreshPixel(_refreshCoordinate, Pixel(0, 0, 0));
+		}
+	}
+	
 	// increment the coordinate
 	
 	if (++_refreshCoordinate.x >= 308) {
@@ -43,35 +72,35 @@ void GBAVideoController::cycle() {
 			_refreshCoordinate.y = 0;
 		}
 	}
-	
+
 	// update flags
 
 	if (_refreshCoordinate.x >= 240) {
-		_statusRegister |= kStatusRegisterFlagHBlank;
+		_statusRegister |= kStatusFlagHBlank;
 	}
 
 	if (_refreshCoordinate.y >= 160) {
-		_statusRegister |= kStatusRegisterFlagVBlank;
+		_statusRegister |= kStatusFlagVBlank;
 	}
 	
 	if ((_statusRegister & 0xf0) == _refreshCoordinate.y) {
-		_statusRegister |= kStatusRegisterFlagVCounter;
+		_statusRegister |= kStatusFlagVCounter;
 	}
 
 	// fire interrupts
 	
 	uint16_t interrupts = 0;
 
-	if (_refreshCoordinate.x == 240 && (_statusRegister & kStatusRegisterFlagHBlankIRQEnable)) {
+	if (_refreshCoordinate.x == 240 && (_statusRegister & kStatusFlagHBlankIRQEnable)) {
 		interrupts |= GameBoyAdvance::kInterruptHBlank;
 	}
 
 	if (_refreshCoordinate.x == 0) {
-		if (_refreshCoordinate.y == 160 && (_statusRegister & kStatusRegisterFlagVBlankIRQEnable)) {
+		if (_refreshCoordinate.y == 160 && (_statusRegister & kStatusFlagVBlankIRQEnable)) {
 			interrupts |= GameBoyAdvance::kInterruptVBlank;
 		}
 	
-		if ((_statusRegister & 0xf0) == _refreshCoordinate.y && (_statusRegister & kStatusRegisterFlagVCounterMatchIRQEnable)) {
+		if ((_statusRegister & 0xf0) == _refreshCoordinate.y && (_statusRegister & kStatusFlagVCounterMatchIRQEnable)) {
 			interrupts |= GameBoyAdvance::kInterruptVCounterMatch;
 		}
 	}
@@ -115,7 +144,7 @@ void GBAVideoController::render() {
 	glEnd();
 }
 
-void GBAVideoController::setPixel(uint16_t x, uint16_t y, uint8_t red, uint8_t green, uint8_t blue) {
+void GBAVideoController::_refreshPixel(const PixelCoordinate& coordinate, const Pixel& pixel) {
 	std::unique_lock<std::mutex> lock(_renderMutex);
-	_pixelUpdates[PixelCoordinate(x, y)] = Pixel(red, green, blue);
+	_pixelUpdates[coordinate] = pixel;
 }

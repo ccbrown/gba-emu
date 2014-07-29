@@ -34,6 +34,7 @@ int main(int argc, char* argv[]) {
 	glutInitWindowSize(240, 160);
 	glutCreateWindow("GBA");
 	glutDisplayFunc(RenderScreen);
+	glutIdleFunc(RenderScreen);
 
 	gGBA.reset(new GameBoyAdvance());
 

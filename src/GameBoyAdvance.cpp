@@ -1,6 +1,7 @@
 #include "GameBoyAdvance.h"
 
 #include "FixedEndian.h"
+#include "BIT_MACROS.h"
 
 GameBoyAdvance::GameBoyAdvance() : _videoController(this), _io(this) {
 	_cpu.mmu().attach(0x0, &_systemROM, 0, _systemROM.size());
@@ -28,7 +29,10 @@ void GameBoyAdvance::run() {
 	_cpu.reset();
 
 	while (true) {
-		_cpu.step();
+		// TODO: timing / actual power saving
+		if (!_isInHaltMode) {
+			_cpu.step();
+		}
 		_videoController.cycle();
 		_videoController.cycle();
 		_videoController.cycle();
@@ -52,8 +56,9 @@ void GameBoyAdvance::IO::interruptRequest(uint16_t interrupts) {
 	auto& requests = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_storage) + 0x202);
 	
 	if (interrupts & enabled) {
+		_gba->_isInHaltMode = false;
 		requests = (requests | (enabled & interrupts));
-		printf("INTERRUPT REQUEST: %hu\n", static_cast<uint16_t>(requests));
+		printf("interrupt request: %hu\n", static_cast<uint16_t>(requests));
 		_gba->cpu().interrupt();
 	}
 }
@@ -114,6 +119,13 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 			case 0x0202: // IF - clears bits to acknowledge interrupts
 			case 0x0203:
 				destinationUInt8 = (destinationUInt8 & ~dataUInt8);
+				GBA_IO_STORE_ADVANCE(1);
+				break;
+			case 0x0301:
+				if (!BIT7(dataUInt8) && !_gba->_isInHaltMode) {
+					printf("waiting for interrupt\n");
+					_gba->_isInHaltMode = true;
+				}
 				GBA_IO_STORE_ADVANCE(1);
 				break;
 			default:

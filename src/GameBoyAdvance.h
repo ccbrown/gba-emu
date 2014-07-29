@@ -50,6 +50,8 @@ class GameBoyAdvance {
 		Memory<uint32_t> _gamePakROM{0x2000000, Memory<uint32_t>::kFlagReadOnly};
 		Memory<uint32_t> _gamePakSRAM{0x10000};
 
+		bool _isInHaltMode = false;
+
 		struct IO : MemoryInterface<uint32_t> {			
 			IO(GameBoyAdvance* gba);
 			virtual ~IO();
