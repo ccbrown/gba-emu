@@ -1,12 +1,11 @@
 #include "GBAVideoController.h"
 
-GBAVideoController::GBAVideoController(ARM7TDMI* cpu) : _cpu(cpu) {
-	_ioRegisters = calloc(_ioRegistersSize, 1);
-	
-	_cpu->mmu().attach(0x04000000, this, 0, _ioRegistersSize);
-	_cpu->mmu().attach(0x05000000, &_paletteRAM, 0, _paletteRAM.size());
-	_cpu->mmu().attach(0x06000000, &_videoRAM, 0, _videoRAM.size());
-	_cpu->mmu().attach(0x07000000, &_objectAttributeRAM, 0, _objectAttributeRAM.size());
+#include "GameBoyAdvance.h"
+
+GBAVideoController::GBAVideoController(GameBoyAdvance* gba) : _gba(gba) {
+	_gba->cpu().mmu().attach(0x05000000, &_paletteRAM, 0, _paletteRAM.size());
+	_gba->cpu().mmu().attach(0x06000000, &_videoRAM, 0, _videoRAM.size());
+	_gba->cpu().mmu().attach(0x07000000, &_objectAttributeRAM, 0, _objectAttributeRAM.size());
 	
 	glGenTextures(1, &_texture);
 	
@@ -26,23 +25,59 @@ GBAVideoController::GBAVideoController(ARM7TDMI* cpu) : _cpu(cpu) {
 }
 
 GBAVideoController::~GBAVideoController() {
-	free(_ioRegisters);
 	glDeleteTextures(1, &_texture);
 }
 
-void GBAVideoController::load(void* destination, uint32_t address, uint32_t size) const {
-	switch (address) {
-		default:
-			if (address + size > _ioRegistersSize) { throw IOError(); }
-			memcpy(destination, reinterpret_cast<uint8_t*>(_ioRegisters) + address, size);
+void GBAVideoController::cycle() {
+	if (++_cycleCounter < 4) {
+		return;
+	} else {
+		_cycleCounter = 0;
 	}
-}
+	
+	// increment the coordinate
+	
+	if (++_refreshCoordinate.x >= 308) {
+		_refreshCoordinate.x = 0;
+		if (++_refreshCoordinate.y >= 228) {
+			_refreshCoordinate.y = 0;
+		}
+	}
+	
+	// update flags
 
-void GBAVideoController::store(uint32_t address, const void* data, uint32_t size) {
-	switch (address) {
-		default:
-			if (address + size > _ioRegistersSize) { throw IOError(); }
-			memcpy(reinterpret_cast<uint8_t*>(_ioRegisters) + address, data, size);
+	if (_refreshCoordinate.x >= 240) {
+		_statusRegister |= kStatusRegisterFlagHBlank;
+	}
+
+	if (_refreshCoordinate.y >= 160) {
+		_statusRegister |= kStatusRegisterFlagVBlank;
+	}
+	
+	if ((_statusRegister & 0xf0) == _refreshCoordinate.y) {
+		_statusRegister |= kStatusRegisterFlagVCounter;
+	}
+
+	// fire interrupts
+	
+	uint16_t interrupts = 0;
+
+	if (_refreshCoordinate.x == 240 && (_statusRegister & kStatusRegisterFlagHBlankIRQEnable)) {
+		interrupts |= GameBoyAdvance::kInterruptHBlank;
+	}
+
+	if (_refreshCoordinate.x == 0) {
+		if (_refreshCoordinate.y == 160 && (_statusRegister & kStatusRegisterFlagVBlankIRQEnable)) {
+			interrupts |= GameBoyAdvance::kInterruptVBlank;
+		}
+	
+		if ((_statusRegister & 0xf0) == _refreshCoordinate.y && (_statusRegister & kStatusRegisterFlagVCounterMatchIRQEnable)) {
+			interrupts |= GameBoyAdvance::kInterruptVCounterMatch;
+		}
+	}
+	
+	if (interrupts) {
+		_gba->interruptRequest(interrupts);
 	}
 }
 
@@ -80,7 +115,7 @@ void GBAVideoController::render() {
 	glEnd();
 }
 
-void GBAVideoController::setPixel(int x, int y, uint8_t red, uint8_t green, uint8_t blue) {
+void GBAVideoController::setPixel(uint16_t x, uint16_t y, uint8_t red, uint8_t green, uint8_t blue) {
 	std::unique_lock<std::mutex> lock(_renderMutex);
 	_pixelUpdates[PixelCoordinate(x, y)] = Pixel(red, green, blue);
 }

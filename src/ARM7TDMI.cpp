@@ -16,28 +16,33 @@ ARM7TDMI::ARM7TDMI() {
 }
 
 void ARM7TDMI::step() {
-	if (_toExecute.isThumb) {
-		printf("%08x ", getRegister(kVirtualRegisterPC) - 4);
-		_executeThumb(_toExecute.opcode);
-	} else if (_toExecute.opcode != kARMNOPcode) {
-		printf("%08x ", getRegister(kVirtualRegisterPC) - 8);
-		_executeARM(_toExecute.opcode);
-	}
+	bool executedInstruction = false;
+	while (!executedInstruction) {
+		if (_toExecute.isValid) {
+			if (getCPSRFlag(kPSRFlagThumb)) {
+				printf("%08x ", getRegister(kVirtualRegisterPC) - 4);
+				_executeThumb(_toExecute.opcode);
+			} else if (_toExecute.opcode != kARMNOPCode) {
+				printf("%08x ", getRegister(kVirtualRegisterPC) - 8);
+				_executeARM(_toExecute.opcode);
+			}
+			executedInstruction = true;
+		}
 	
-	_toExecute = _toDecode;
-
-	if (getCPSRFlag(kPSRFlagThumb)) {
-		auto pc = getRegister(kVirtualRegisterPC);
-		assert(!(pc & 0x1));
-		_toDecode.opcode = mmu().load<LittleEndian<uint16_t>>(pc);
-		setRegister(kVirtualRegisterPC, pc + 2);
-		_toDecode.isThumb = true;
-	} else {
-		auto pc = getRegister(kVirtualRegisterPC);
-		assert(!(pc & 0x3));
-		_toDecode.opcode = mmu().load<LittleEndian<uint32_t>>(pc);
-		setRegister(kVirtualRegisterPC, pc + 4);
-		_toDecode.isThumb = false;
+		_toExecute = _toDecode;
+	
+		if (getCPSRFlag(kPSRFlagThumb)) {
+			auto pc = getRegister(kVirtualRegisterPC);
+			assert(!(pc & 0x1));
+			_toDecode.opcode = mmu().load<LittleEndian<uint16_t>>(pc);
+			setRegister(kVirtualRegisterPC, pc + 2);
+		} else {
+			auto pc = getRegister(kVirtualRegisterPC);
+			assert(!(pc & 0x3));
+			_toDecode.opcode = mmu().load<LittleEndian<uint32_t>>(pc);
+			setRegister(kVirtualRegisterPC, pc + 4);
+		}
+		_toDecode.isValid = true;
 	}
 }
 
@@ -45,11 +50,22 @@ void ARM7TDMI::reset() {
 	setRegister(kVirtualRegisterCPSR, 0 | kModeSupervisor);
 	_updateVirtualRegisters();
 	setRegister(kVirtualRegisterPC, 0);
+	_flushPipeline();
 }
 
 void ARM7TDMI::branch(uint32_t address) {
 	setRegister(kVirtualRegisterPC, address);
 	_flushPipeline();
+}
+
+void ARM7TDMI::interrupt() {
+	if (getCPSRFlag(kPSRFlagIRQDisable)) { return; }
+
+	setMode(kModeIRQ);
+	setCPSRFlags(kPSRFlagIRQDisable);
+	setRegister(kVirtualRegisterLR, getRegister(kVirtualRegisterPC) - (getCPSRFlag(kPSRFlagThumb) ? 0 : 4));
+	branch(0x00000018);
+	clearCPSRFlags(kPSRFlagThumb);
 }
 
 void ARM7TDMI::setMode(Mode mode) {
@@ -106,7 +122,7 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 		// SWI
 		printf("SWI %u\n", BITFIELD_UINT32(opcode, 23, 0));
 		setMode(kModeSupervisor);
-		setCPSRFlags(kPSRFlagIRQ);
+		setCPSRFlags(kPSRFlagIRQDisable);
 		_branchWithLink(0x00000008);
 		return;
 	}
@@ -207,7 +223,10 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 	}
 	
 	if (_executeARMDataTransfer(opcode)) { return; }
+
 	if (_executeARMBlockTransfer(opcode)) { return; }
+
+	if (_executeARMMultiplication(opcode)) { return; }
 	
 	printf("unknown arm opcode %02x\n", opcode);
 	throw UnknownInstruction();
@@ -307,7 +326,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 			// MOV
 			printf("MOV %08x to r%u\n", n, rd);
 			setRegister(rd, n);
-			_updateZNFlags(n);
+			_updateNZFlags(n);
 		}
 		return;
 	}
@@ -344,10 +363,10 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 	if ((opcode & 0xff00) == 0xdf00) {
 		// SWI
 		printf("SWI %u\n", BITFIELD_UINT32(opcode, 7, 0));
-		clearCPSRFlags(kPSRFlagThumb);
 		setMode(kModeSupervisor);
-		setCPSRFlags(kPSRFlagIRQ);
+		setCPSRFlags(kPSRFlagIRQDisable);
 		_branchWithLink(0x00000008);
+		clearCPSRFlags(kPSRFlagThumb);
 		return;
 	}
 	
@@ -366,7 +385,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 		bool carry = getCPSRFlag(kPSRFlagCarry);
 		auto result = ShiftSpecial(getRegister(rs), shiftType, n, &carry);
 		setRegister(rd, result);
-		_updateZNFlags(result);
+		_updateNZFlags(result);
 		return;
 	}
 	
@@ -574,18 +593,18 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 	throw UnknownInstruction();
 }
 
-void ARM7TDMI::_updateZNFlags(uint32_t n) {
+void ARM7TDMI::_updateNZFlags(uint32_t n) {
 	setCPSRFlags(kPSRFlagZero, n == 0);
 	setCPSRFlags(kPSRFlagNegative, BIT31(n));
 }
 
 void ARM7TDMI::_branchWithLink(uint32_t address) {
-	setRegister(kVirtualRegisterLR, (getRegister(kVirtualRegisterPC) - (_toExecute.isThumb ? 2 : 4)) | (_toExecute.isThumb ? 1 : 0));
+	setRegister(kVirtualRegisterLR, (getRegister(kVirtualRegisterPC) - (getCPSRFlag(kPSRFlagThumb) ? 2 : 4)) | (getCPSRFlag(kPSRFlagThumb) ? 1 : 0));
 	branch(address);
 }
 
 void ARM7TDMI::_flushPipeline() {
-	_toDecode = Instruction();
+	_toExecute.isValid = _toDecode.isValid = false;
 }
 
 void ARM7TDMI::_updateVirtualRegisters() {
@@ -760,7 +779,7 @@ bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
 			printf("MOV %08x to r%u\n", op2, rd);
 			setRegister(rd, op2);
 			if (updateFlags) {
-				_updateZNFlags(op2);
+				_updateNZFlags(op2);
 			}
 			break;
 		}
@@ -837,6 +856,9 @@ bool ARM7TDMI::_executeARMDataTransfer(uint32_t opcode) {
 			} else {
 				printf("LDR r%u from %08x\n", rd, address);
 				setRegister(rdp, mmu().load<LittleEndian<uint32_t>>(address));
+				if (rdp == kPhysicalRegisterPC) {
+					_flushPipeline();
+				}
 			}
 		} else {
 			if (BIT22(opcode)) {
@@ -939,6 +961,51 @@ bool ARM7TDMI::_executeARMBlockTransfer(uint32_t opcode) {
 	printf("\n");
 	
 	return true;
+}
+
+bool ARM7TDMI::_executeARMMultiplication(uint32_t opcode) {
+	if ((opcode & 0x0e000000) != 0) { return false; }
+
+	auto updateFlags = BIT20(opcode);
+
+	uint32_t operation = BITFIELD_UINT32(opcode, 23, 21);
+	auto rdHigh = BITFIELD_REGISTER(opcode, 19, 16);
+	auto rdLow  = BITFIELD_REGISTER(opcode, 15, 12);
+	auto rs     = BITFIELD_REGISTER(opcode, 11, 8);
+	auto rm     = BITFIELD_REGISTER(opcode,  3, 0);
+	auto& rd = rdHigh;
+	auto& rn = rdLow;
+
+	if (BIT24(opcode)) {
+		// half word multiplication
+		if (!BIT7(opcode) || BIT4(opcode)) { return false; }
+		// TODO
+	} else if ((opcode & 0xf0) != 0x90) {
+		return false;
+	} else {
+		switch (operation) {
+			case 0: {
+				uint32_t result = getRegister(rm) * getRegister(rs);
+				printf("MUL r%u = r%u * r%u = %08x\n", rd, rm, rs, result);
+				setRegister(rd, result);
+				if (updateFlags) {
+					_updateNZFlags(result);
+				}
+				return true;
+			}
+			case 1: {
+				uint32_t result = getRegister(rm) * getRegister(rs) + getRegister(rn);
+				printf("MLA r%u = r%u * r%u + r%u= %08x\n", rd, rm, rs, rn, result);
+				setRegister(rd, result);
+				if (updateFlags) {
+					_updateNZFlags(result);
+				}
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 bool ARM7TDMI::_executeThumbALUOp(uint16_t opcode) {
@@ -1053,8 +1120,8 @@ bool ARM7TDMI::_executeThumbHighRegisterOp(uint16_t opcode) {
 			// BX or BLX
 			if (opcode & 0x7) { return false; }
 			uint32_t address = getRegister(rs);
-			if (!(address & 1)) {
-				clearCPSRFlags(kPSRFlagThumb);
+			bool switchToARM = !(address & 1);
+			if (switchToARM) {
 				address &= ~3;
 			} else {
 				address &= ~1;
@@ -1065,6 +1132,9 @@ bool ARM7TDMI::_executeThumbHighRegisterOp(uint16_t opcode) {
 			} else {
 				printf("BX r%u (%08x)\n", rs, address);
 				branch(address);
+			}
+			if (switchToARM) {
+				clearCPSRFlags(kPSRFlagThumb);
 			}
 		} else {
 			if (!BIT6(opcode) && !BIT7(opcode)) { return false; }
@@ -1098,14 +1168,14 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 		case kALUOperationEOR: {
 			uint32_t result = a ^ b;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
 		case kALUOperationAND: {
 			uint32_t result = a & b;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1114,7 +1184,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			if (updateFlags) {
 				setCPSRFlags(kPSRFlagCarry, result > a);
 				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) != (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1123,7 +1193,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			if (updateFlags) {
 				setCPSRFlags(kPSRFlagCarry, result > a || (result == a && b != 0));
 				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) != (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1132,7 +1202,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			if (updateFlags) {
 				setCPSRFlags(kPSRFlagCarry, result < a);
 				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) == (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1141,7 +1211,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			if (updateFlags) {
 				setCPSRFlags(kPSRFlagCarry, result < a || (result == a && b != 0));
 				setCPSRFlags(kPSRFlagOverflow, (a & 0x80000000) == (b & 0x80000000) && (a & 0x80000000) != (result & 0x80000000));
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1149,28 +1219,28 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			assert(b == 0);
 			uint32_t result = ~a;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
 		case kALUOperationORR: {
 			uint32_t result = a | b;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
 		case kALUOperationBIC: {
 			uint32_t result = a & ~b;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
 		case kALUOperationMUL: {
 			uint32_t result = a * b;
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 			}
 			return result;
 		}
@@ -1178,7 +1248,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			bool carry = getCPSRFlag(kPSRFlagCarry);
 			uint32_t result = Shift(a, kShiftTypeROR, b, &carry);
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 				setCPSRFlags(kPSRFlagCarry, carry);
 			}
 			return result;
@@ -1187,7 +1257,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			bool carry = getCPSRFlag(kPSRFlagCarry);
 			uint32_t result = Shift(a, kShiftTypeLSL, b, &carry);
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 				setCPSRFlags(kPSRFlagCarry, carry);
 			}
 			return result;
@@ -1196,7 +1266,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			bool carry = getCPSRFlag(kPSRFlagCarry);
 			uint32_t result = Shift(a, kShiftTypeLSR, b, &carry);
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 				setCPSRFlags(kPSRFlagCarry, carry);
 			}
 			return result;
@@ -1205,7 +1275,7 @@ uint32_t ARM7TDMI::_aluOperation(ALUOperation op, uint32_t a, uint32_t b, bool u
 			bool carry = getCPSRFlag(kPSRFlagCarry);
 			uint32_t result = Shift(a, kShiftTypeASR, b, &carry);
 			if (updateFlags) {
-				_updateZNFlags(result);
+				_updateNZFlags(result);
 				setCPSRFlags(kPSRFlagCarry, carry);
 			}
 			return result;

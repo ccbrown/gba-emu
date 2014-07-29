@@ -16,7 +16,7 @@ std::unique_ptr<GameBoyAdvance> gGBA;
 static void RenderScreen() {
 	glClear(GL_COLOR_BUFFER_BIT);
 	
-	gGBA->renderScreen();
+	gGBA->videoController().render();
 	
 	glutSwapBuffers();
 }

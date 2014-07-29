@@ -86,13 +86,13 @@ class ARM7TDMI {
 		};
 
 		enum PSRFlag : uint32_t {
-			kPSRFlagNegative  = (1u << 31),
-			kPSRFlagZero      = (1u << 30),
-			kPSRFlagCarry     = (1u << 29),
-			kPSRFlagOverflow  = (1u << 28),
-			kPSRFlagIRQ       = (1u <<  7),
-			kPSRFlagFIQ       = (1u <<  6),
-			kPSRFlagThumb     = (1u <<  5),
+			kPSRFlagNegative   = (1u << 31),
+			kPSRFlagZero       = (1u << 30),
+			kPSRFlagCarry      = (1u << 29),
+			kPSRFlagOverflow   = (1u << 28),
+			kPSRFlagIRQDisable = (1u <<  7),
+			kPSRFlagFIQDisable = (1u <<  6),
+			kPSRFlagThumb      = (1u <<  5),
 		};
 		
 		static const uint32_t kPSRMaskControl   = 0x000000ff;
@@ -153,6 +153,8 @@ class ARM7TDMI {
 
 		void branch(uint32_t address);
 
+		void interrupt();
+
 		void setMode(Mode mode);
 
 		uint32_t getRegister(VirtualRegister r) const { return _physicalRegisters[_virtualRegisters[r]]; }
@@ -174,11 +176,11 @@ class ARM7TDMI {
 		PhysicalRegister _virtualRegisters[kVirtualRegisterCount];
 		uint32_t _physicalRegisters[kPhysicalRegisterCount]{0};
 
-		static const uint32_t kARMNOPcode = 0xe1a00000;
+		static const uint32_t kARMNOPCode = 0xe1a00000;
 
 		struct Instruction {
-			uint32_t opcode = kARMNOPcode;
-			bool isThumb = 0;
+			uint32_t opcode = kARMNOPCode;
+			bool isValid = true;
 		};
 		
 		Instruction _toDecode;
@@ -187,7 +189,7 @@ class ARM7TDMI {
 		void _executeARM(uint32_t opcode);
 		void _executeThumb(uint16_t opcode);
 
-		void _updateZNFlags(uint32_t n);
+		void _updateNZFlags(uint32_t n);
 
 		void _branchWithLink(uint32_t address);
 		void _flushPipeline();
@@ -199,6 +201,7 @@ class ARM7TDMI {
 		bool _executeARMDataProcessing(uint32_t opcode);
 		bool _executeARMDataTransfer(uint32_t opcode);
 		bool _executeARMBlockTransfer(uint32_t opcode);
+		bool _executeARMMultiplication(uint32_t opcode);
 		
 		bool _executeThumbALUOp(uint16_t opcode);
 		bool _executeThumbHighRegisterOp(uint16_t opcode);
