@@ -14,6 +14,8 @@ class GameBoyAdvance {
 		
 		void run();
 		
+		void renderScreen() { return _videoController.render(); }
+		
 	private:
 		ARM7TDMI _cpu;
 		GBAVideoController _videoController;

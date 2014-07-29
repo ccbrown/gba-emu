@@ -1,3 +1,5 @@
 exe gba : [ glob src/*.cpp ] :
 	<cflags>"-std=c++11 -fcolor-diagnostics"
+	<framework>GLUT
+	<framework>OpenGL
 ;
