@@ -45,9 +45,22 @@ void GBAVideoController::cycle() {
 			case 1:
 				_refreshPixel(_refreshCoordinate, Pixel(0, 70, 0));
 				break;
-			case 2:
-				_refreshPixel(_refreshCoordinate, Pixel(0, 0, 70));
+			case 2: {
+				bool hasSprite = false;
+				for (uint32_t i = 0; i < 128; ++i) {
+					auto attributes = *reinterpret_cast<OBJAttributes*>(reinterpret_cast<uint8_t*>(_videoRAM.storage()) + i * 8);
+					if (attributes.x == _refreshCoordinate.x && attributes.y == _refreshCoordinate.y && !attributes.transformsEnabled && !attributes.displayMode) {
+						hasSprite = true;
+						break;
+					}
+				}
+				if (hasSprite) {
+					_refreshPixel(_refreshCoordinate, Pixel(255, 255, 255));
+				} else {
+					_refreshPixel(_refreshCoordinate, Pixel(0, 0, 70));
+				}
 				break;
+			}
 			case 3: { // single frame bitmap
 				auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + _refreshCoordinate.x + _refreshCoordinate.y * 240;
 				_refreshPixel(_refreshCoordinate, pixel);
@@ -83,7 +96,7 @@ void GBAVideoController::cycle() {
 		_statusRegister |= kStatusFlagVBlank;
 	}
 	
-	if ((_statusRegister & 0xf0) == _refreshCoordinate.y) {
+	if (((_statusRegister & 0xf0) >> 8) == _refreshCoordinate.y) {
 		_statusRegister |= kStatusFlagVCounter;
 	}
 
@@ -100,7 +113,7 @@ void GBAVideoController::cycle() {
 			interrupts |= GameBoyAdvance::kInterruptVBlank;
 		}
 	
-		if ((_statusRegister & 0xf0) == _refreshCoordinate.y && (_statusRegister & kStatusFlagVCounterMatchIRQEnable)) {
+		if (((_statusRegister & 0xf0) >> 8) == _refreshCoordinate.y && (_statusRegister & kStatusFlagVCounterMatchIRQEnable)) {
 			interrupts |= GameBoyAdvance::kInterruptVCounterMatch;
 		}
 	}
@@ -142,6 +155,18 @@ void GBAVideoController::render() {
 	glVertex2f( 1.0,  1.0);
 
 	glEnd();
+}
+
+void GBAVideoController::updateStatusRegister(uint16_t value) {
+	_statusRegister = (_statusRegister & 0x0007) | (value & 0xfff8);
+	printf("video status register update: %08x\n", _statusRegister & 0xfff8);
+}
+
+void GBAVideoController::setControlRegister(uint16_t value) {
+	if (_controlRegister != value) {
+		_controlRegister = value;
+		printf("video control register update: %08x\n", value);
+	}
 }
 
 void GBAVideoController::_refreshPixel(const PixelCoordinate& coordinate, const Pixel& pixel) {

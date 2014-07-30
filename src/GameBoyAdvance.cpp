@@ -83,6 +83,11 @@ void GameBoyAdvance::IO::load(void* destination, uint32_t address, uint32_t size
 		}
 
 		switch (address) {
+			case 0x0000: // DISPCNT
+				if (size < 2) { throw IOError(); }
+				destinationUInt16 = _gba->videoController().controlRegister();
+				GBA_IO_LOAD_ADVANCE(2);
+				break;
 			case 0x0004: // DISPSTAT
 				if (size < 2) { throw IOError(); }
 				destinationUInt16 = _gba->videoController().statusRegister();
@@ -119,6 +124,11 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 		}
 
 		switch (address) {
+			case 0x0000: // DISPCNT
+				if (size < 2) { throw IOError(); }
+				_gba->videoController().setControlRegister(dataUInt16);
+				GBA_IO_STORE_ADVANCE(2);
+				break;
 			case 0x0004: // DISPSTAT
 				if (size < 2) { throw IOError(); }
 				_gba->videoController().updateStatusRegister(dataUInt16);

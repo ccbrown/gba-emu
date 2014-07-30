@@ -34,7 +34,7 @@ class GBAVideoController {
 		};
 		
 		uint16_t statusRegister() const { return _statusRegister; }
-		void updateStatusRegister(uint16_t value) { _statusRegister = (_statusRegister & 0x0007) | (value & 0xfff8); }
+		void updateStatusRegister(uint16_t value);
 
 		enum ControlFlag : uint16_t {
 			kControlFlagCGBMode                = (1 <<  3),
@@ -55,7 +55,7 @@ class GBAVideoController {
 		static const uint16_t kControlMaskBGMode = 0x0007;
 
 		uint16_t controlRegister() const { return _controlRegister; }
-		void setControlRegister(uint16_t value) { _controlRegister = value; }
+		void setControlRegister(uint16_t value);
 
 	private:
 		GameBoyAdvance* const _gba = nullptr;
@@ -92,6 +92,27 @@ class GBAVideoController {
 			Pixel(uint8_t red, uint8_t green, uint8_t blue) : red(red), green(green), blue(blue) {}
 			uint8_t red, green, blue;
 		};
+		
+#pragma pack(push, 1)
+
+		struct OBJAttributes {
+			uint8_t y;
+			uint8_t transformsEnabled : 1;
+			uint8_t displayMode : 1;
+			uint8_t mode : 2;
+			uint8_t mosaicEnabled : 1;
+			uint8_t colors : 1;
+			uint8_t shape : 2;
+			
+			uint8_t x;
+			
+			uint8_t moreStuff;
+			uint16_t moreStuff2;
+		};
+		
+		static_assert(sizeof(OBJAttributes) == 6, "OBJAttributes should be 6 bytes");
+
+#pragma pack(pop)
 		
 		PixelCoordinate _refreshCoordinate{0, 0};
 
