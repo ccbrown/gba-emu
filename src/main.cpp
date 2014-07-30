@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
-	glutInitWindowPosition(100, 100);
+	glutInitWindowPosition(200, 150);
 	glutInitWindowSize(240, 160);
 	glutCreateWindow("GBA");
 	glutDisplayFunc(RenderScreen);

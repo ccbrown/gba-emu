@@ -66,7 +66,6 @@ void GameBoyAdvance::IO::interruptRequest(uint16_t interrupts) {
 	if (interrupts & enabled) {
 		_gba->_isInHaltMode = false;
 		requests = (requests | (enabled & interrupts));
-		printf("interrupt request: %hu\n", static_cast<uint16_t>(requests));
 		_gba->cpu().interrupt();
 	}
 }
@@ -141,7 +140,6 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 				break;
 			case 0x0301:
 				if (!BIT7(dataUInt8) && !_gba->_isInHaltMode) {
-					printf("waiting for interrupt\n");
 					_gba->_isInHaltMode = true;
 				}
 				GBA_IO_STORE_ADVANCE(1);

@@ -40,7 +40,7 @@ class GBAVideoController {
 			kControlFlagCGBMode                = (1 <<  3),
 			kControlFlagDisplayFrame           = (1 <<  4),
 			kControlFlagHBlankIntervalFree     = (1 <<  5),
-			kControlFlagOBJMapping             = (1 <<  6),
+			kControlFlagOBJTileMapping         = (1 <<  6),
 			kControlFlagForcedBlank            = (1 <<  7),
 			kControlFlagBG0Enable              = (1 <<  8),
 			kControlFlagBG1Enable              = (1 <<  9),
@@ -74,21 +74,11 @@ class GBAVideoController {
 		struct PixelCoordinate {
 			PixelCoordinate(uint16_t x, uint16_t y) : x(x), y(y) {}
 			uint16_t x, y;
-			
-			bool operator==(const PixelCoordinate& other) const {
-				return x == other.x && y == other.y;
-			}
-
-			struct Hasher {
-				std::size_t operator()(const PixelCoordinate& coord) const {
-					return (coord.x << 16) | coord.y;
-				}
-			};
 		};
 
 		struct Pixel {
 			Pixel() : red(0), green(0), blue(0) {}
-			Pixel(uint16_t packed) : red((packed >> 10) & 0x1f), green((packed >> 5) & 0x1f), blue(packed & 0x1f) {}
+			Pixel(uint16_t packed) : red(((packed >> 10) & 0x1f) << 3), green(((packed >> 5) & 0x1f) << 3), blue((packed & 0x1f) << 3) {}
 			Pixel(uint8_t red, uint8_t green, uint8_t blue) : red(red), green(green), blue(blue) {}
 			uint8_t red, green, blue;
 		};
@@ -96,18 +86,21 @@ class GBAVideoController {
 #pragma pack(push, 1)
 
 		struct OBJAttributes {
-			uint8_t y;
-			uint8_t transformsEnabled : 1;
-			uint8_t displayMode : 1;
-			uint8_t mode : 2;
-			uint8_t mosaicEnabled : 1;
-			uint8_t colors : 1;
-			uint8_t shape : 2;
+			uint16_t shape : 2;
+			uint16_t fullPalette : 1;
+			uint16_t mosaicEnabled : 1;
+			uint16_t mode : 2;
+			uint16_t displayMode : 1;
+			uint16_t rotationAndScaling : 1;
+			uint16_t y : 8;
 			
-			uint8_t x;
+			uint16_t size : 2;
+			uint16_t transform : 5;
+			uint16_t x : 9;
 			
-			uint8_t moreStuff;
-			uint16_t moreStuff2;
+			uint16_t palette : 4;
+			uint16_t bgRelativePriority : 2;
+			uint16_t tileBase : 10;
 		};
 		
 		static_assert(sizeof(OBJAttributes) == 6, "OBJAttributes should be 6 bytes");
@@ -116,10 +109,21 @@ class GBAVideoController {
 		
 		PixelCoordinate _refreshCoordinate{0, 0};
 
-		void _refreshPixel(const PixelCoordinate& coordinate, const Pixel& pixel);
+		void _updateDisplay();
+		
+		void _drawObjects();
+		void _drawTile(int x, int y, int tile, bool isBackground, int palette = -1);
+		void _drawPixel(int x, int y, const Pixel& pixel);
 
 		int _cycleCounter = 0;
 		
 		// protected by _renderMutex
-		std::unordered_map<PixelCoordinate, Pixel, PixelCoordinate::Hasher> _pixelUpdates;
+		Pixel* _readyPixelBuffer = nullptr;
+
+		Pixel* _renderPixelBuffer = nullptr;
+		Pixel* _drawPixelBuffer = nullptr;
+		
+		Pixel* _pixelBufferA = nullptr;
+		Pixel* _pixelBufferB = nullptr;
+		Pixel* _pixelBufferC = nullptr;
 };
