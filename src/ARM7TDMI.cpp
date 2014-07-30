@@ -63,7 +63,7 @@ void ARM7TDMI::interrupt() {
 
 	setMode(kModeIRQ);
 	setCPSRFlags(kPSRFlagIRQDisable);
-	setRegister(kVirtualRegisterLR, getRegister(kVirtualRegisterPC) - (getCPSRFlag(kPSRFlagThumb) ? 0 : 4));
+	setRegister(kVirtualRegisterLR, getRegister(kVirtualRegisterPC) - (_toExecute.isValid ? 2 : 3) * (getCPSRFlag(kPSRFlagThumb) ? 2 : 4) + 4);
 	branch(0x00000018);
 	clearCPSRFlags(kPSRFlagThumb);
 }
