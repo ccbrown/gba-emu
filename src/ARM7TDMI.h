@@ -191,7 +191,7 @@ class ARM7TDMI {
 
 		void _updateNZFlags(uint32_t n);
 
-		void _branchWithLink(uint32_t address);
+		void _branchWithLink(uint32_t address, bool setThumbBit = false);
 		void _flushPipeline();
 
 		void _updateVirtualRegisters();
