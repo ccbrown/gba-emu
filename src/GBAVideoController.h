@@ -82,31 +82,7 @@ class GBAVideoController {
 			Pixel(uint8_t red, uint8_t green, uint8_t blue) : red(red), green(green), blue(blue) {}
 			uint8_t red, green, blue;
 		};
-		
-#pragma pack(push, 1)
 
-		struct OBJAttributes {
-			uint16_t shape : 2;
-			uint16_t fullPalette : 1;
-			uint16_t mosaicEnabled : 1;
-			uint16_t mode : 2;
-			uint16_t displayMode : 1;
-			uint16_t rotationAndScaling : 1;
-			uint16_t y : 8;
-			
-			uint16_t size : 2;
-			uint16_t transform : 5;
-			uint16_t x : 9;
-			
-			uint16_t palette : 4;
-			uint16_t bgRelativePriority : 2;
-			uint16_t tileBase : 10;
-		};
-		
-		static_assert(sizeof(OBJAttributes) == 6, "OBJAttributes should be 6 bytes");
-
-#pragma pack(pop)
-		
 		PixelCoordinate _refreshCoordinate{0, 0};
 
 		void _updateDisplay();

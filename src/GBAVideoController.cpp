@@ -3,6 +3,7 @@
 #include "GameBoyAdvance.h"
 
 #include "FixedEndian.h"
+#include "BIT_MACROS.h"
 
 GBAVideoController::GBAVideoController(GameBoyAdvance* gba) : _gba(gba) {
 	_gba->cpu().mmu().attach(0x05000000, &_paletteRAM, 0, _paletteRAM.size());
@@ -146,6 +147,12 @@ void GBAVideoController::_drawPixel(int x, int y, const Pixel& pixel) {
 }
 
 void GBAVideoController::_updateDisplay() {
+	for (int x = 0; x < 240; ++x) {
+		for (int y = 0; y < 160; ++y) {
+			_drawPixel(x, y, Pixel(*reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage())));
+		}
+	}
+	
 	switch (_controlRegister & kControlMaskBGMode) {
 		case 0:
 		case 1:
@@ -189,22 +196,30 @@ void GBAVideoController::_updateDisplay() {
 
 void GBAVideoController::_drawObjects() {
 	for (int i = 0; i < 128; ++i) {
-		auto attributes = *reinterpret_cast<OBJAttributes*>(reinterpret_cast<uint8_t*>(_videoRAM.storage()) + i * 8);
+		uint16_t attributes0 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8);
+		uint16_t attributes1 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8 + 2);
+		uint16_t attributes2 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8 + 4);
 
-		if (!attributes.rotationAndScaling && attributes.displayMode) {
+		if (!BIT8(attributes0) && BIT9(attributes0)) {
 			// hidden
 			continue;
 		}
 
+		auto x = BITFIELD_UINT32(attributes1, 8, 0);
+		auto y = BITFIELD_UINT32(attributes0, 7, 0);
+
 		int width = 0;
 		int height = 0;
 
-		if (attributes.shape == 0) {
+		auto shape = BITFIELD_UINT32(attributes0, 15, 14);
+		auto size  = BITFIELD_UINT32(attributes1, 15, 14);
+
+		if (shape) {
 			// square
-			width = height = (8 << attributes.size);
+			width = height = (8 << size);
 		} else {
 			// horizontal or vertical
-			switch (attributes.size) {
+			switch (size) {
 				case 0:
 					width  = 16;
 					height =  8;
@@ -222,21 +237,22 @@ void GBAVideoController::_drawObjects() {
 					height = 32;
 					break;
 			}
-			if (attributes.shape == 2) {
+			if (shape == 2) {
 				std::swap(width, height);
 			}
 		}
 		
-		if (attributes.rotationAndScaling && attributes.displayMode) {
+		if (BIT8(attributes0) && BIT9(attributes0)) {
 			width <<= 1;
 			height <<= 1;
 		}
 
 		for (int row = 0; row < (height >> 3); ++row) {
-			int rowTile = attributes.tileBase + (_controlRegister & kControlFlagOBJTileMapping) ? (row * (width >> 3)) : (row * 0x20);
+			auto tileBase = BITFIELD_UINT32(attributes2, 9, 0);
+			int rowTile = tileBase + (_controlRegister & kControlFlagOBJTileMapping) ? (row * (width >> 3)) : (row * 0x20);
 			for (int col = 0; col < (width >> 3); ++col) {
 				int tile = rowTile + col;
-				_drawTile(attributes.x + (row << 3), attributes.y + (col << 3), tile, false, attributes.fullPalette ? -1 : attributes.palette);
+				_drawTile(x + (row << 3), y + (col << 3), tile, false, BIT13(attributes0) ? -1 : BITFIELD_UINT32(attributes2, 15, 12));
 			}
 		}
 	}
@@ -245,7 +261,7 @@ void GBAVideoController::_drawObjects() {
 void GBAVideoController::_drawTile(int x, int y, int tile, bool isBackground, int palette) {
 	auto tilesAddress = (_controlRegister & kControlMaskBGMode) < 3 ? 0x00010000 : 0x00014000;
 	auto tileData = reinterpret_cast<uint8_t*>(_videoRAM.storage()) + tilesAddress + tile * (palette < 0 ? 64 : 32);
-	auto paletteData = reinterpret_cast<uint16_t*>(_paletteRAM.storage()) + (isBackground ? 0 : 0x100) + (palette < 0 ? 0 : (palette << 4));
+	auto paletteData = reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage()) + (isBackground ? 0 : 0x100) + (palette < 0 ? 0 : (palette << 4));
 	for (int ty = 0; ty < 8; ++ty) {
 		for (int tx = 0; tx < 8; ++tx) {
 			int pixel = (ty << 3) + tx;
