@@ -388,6 +388,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 		auto result = ShiftSpecial(getRegister(rs), shiftType, n, &carry);
 		setRegister(rd, result);
 		_updateNZFlags(result);
+		setCPSRFlags(kPSRFlagCarry, carry);
 		return;
 	}
 	
