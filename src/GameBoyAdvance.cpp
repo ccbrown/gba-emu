@@ -31,12 +31,6 @@ void GameBoyAdvance::run() {
 	_cpu.reset();
 
 	while (true) {
-		if (_cpu.getRegister(ARM7TDMI::kVirtualRegisterPC) >= 0x08000000) {
-			// temporary. just debugging the bios for now
-			printf("game rom reached. sleeping...\n");
-			std::this_thread::sleep_for(std::chrono::hours(10000));
-		}
-		
 		// TODO: timing / actual power saving
 		if (!_isInHaltMode) {
 			_cpu.step();
