@@ -146,6 +146,19 @@ void GBAVideoController::_drawPixel(int x, int y, const Pixel& pixel) {
 	_drawPixelBuffer[x + y * 240] = pixel;
 }
 
+void GBAVideoController::_drawBitmapBackground(int x, int y, int w, int h, uint32_t address) {
+	for (int bgx = 0; bgx < w; ++bgx) {
+		for (int bgy = 0; bgy < h; ++bgy) {
+			auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + bgx + bgy * 240 + address;
+			_drawPixel(x + bgx, y + bgy, pixel);
+		}
+	}
+}
+
+void GBAVideoController::_drawTileBackground(int x, int y, int w, int h, int background) {
+	// TODO
+}
+
 void GBAVideoController::_updateDisplay() {
 	for (int x = 0; x < 240; ++x) {
 		for (int y = 0; y < 160; ++y) {
@@ -155,29 +168,32 @@ void GBAVideoController::_updateDisplay() {
 	
 	switch (_controlRegister & kControlMaskBGMode) {
 		case 0:
+			// TODO: respect priority
+			if (_controlRegister & kControlFlagBG0Enable) {
+				_drawTileBackground(0, 0, 240, 160, 0);
+			}
+			if (_controlRegister & kControlFlagBG1Enable) {
+				_drawTileBackground(0, 0, 240, 160, 1);
+			}
+			if (_controlRegister & kControlFlagBG2Enable) {
+				_drawTileBackground(0, 0, 240, 160, 2);
+			}
+			if (_controlRegister & kControlFlagBG3Enable) {
+				_drawTileBackground(0, 0, 240, 160, 3);
+			}
 		case 1:
 		case 2:
 			// TODO
 			break;
-		case 3: { // single frame bitmap
-			for (int x = 0; x < 240; ++x) {
-				for (int y = 0; y < 160; ++y) {
-					auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + x + y * 240;
-					_drawPixel(x, y, pixel);
-				}
-			}
+		case 3:
+			_drawBitmapBackground(0, 0, 240, 160, 0);
 			break;
-		}
-		case 4: // two frame bitmap
-		case 5: {
-			for (int x = 0; x < 240; ++x) {
-				for (int y = 0; y < 160; ++y) {
-					auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + x + y * 240 + ((_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
-					_drawPixel(x, y, pixel);
-				}
-			}
+		case 4:
+			_drawBitmapBackground(0, 0, 240, 160, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
 			break;
-		}
+		case 5:
+			_drawBitmapBackground(0, 0, 160, 128, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
+			break;
 		default:
 			for (int x = 0; x < 240; ++x) {
 				for (int y = 0; y < 160; ++y) {
@@ -277,4 +293,18 @@ void GBAVideoController::_drawTile(int x, int y, int tile, bool isBackground, in
 			}
 		}
 	}
+}
+
+GBAVideoController::Background::Background(uint16_t data)
+	: priority(BITFIELD_UINT16(data, 1, 0))
+	, characterBase(BITFIELD_UINT16(data, 3, 2))
+	, isMosaic(BIT6(data))
+	, isFullPalette(BIT7(data))
+	, screenBase(BITFIELD_UINT16(data, 12, 8))
+	, wrapAround(BIT13(data))
+	, screenSize(static_cast<ScreenSize>(BITFIELD_UINT16(data, 15, 14)))
+{}
+			
+GBAVideoController::Background::operator uint16_t() const {
+	return (screenSize << 14) | ((wrapAround ? 1 : 0) << 13) | (screenBase << 8) | ((isFullPalette ? 1 : 0) << 7) | ((isMosaic ? 1 : 0) << 6) | (characterBase << 2) | priority;
 }

@@ -36,5 +36,5 @@
 #define BIT31(n) static_cast<bool>(n & (1 << 31))
 #define BIT32(n) static_cast<bool>(n & (1 << 32))
 
-#define BITFIELD_UINT16(n, msb, lsb) (static_cast<uint16_t>(n & (static_cast<uint16_t>(0xffff << (15 - msb)) >> static_cast<uint16_t>(15 - msb + lsb) << lsb)) >> static_cast<uint16_t>(lsb))
+#define BITFIELD_UINT16(n, msb, lsb) (static_cast<uint16_t>(n & (static_cast<uint16_t>(    0xffff << (15 - msb)) >> static_cast<uint16_t>(15 - msb + lsb) << lsb)) >> static_cast<uint16_t>(lsb))
 #define BITFIELD_UINT32(n, msb, lsb) (static_cast<uint32_t>(n & (static_cast<uint32_t>(0xffffffff << (31 - msb)) >> static_cast<uint32_t>(31 - msb + lsb) << lsb)) >> static_cast<uint32_t>(lsb))

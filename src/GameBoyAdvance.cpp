@@ -94,6 +94,14 @@ void GameBoyAdvance::IO::load(void* destination, uint32_t address, uint32_t size
 				destinationUInt8 = static_cast<uint8_t>(_gba->_videoController.currentScanline() >> 8);
 				GBA_IO_LOAD_ADVANCE(1);
 				break;
+			case 0x0008: // BGXCNT
+			case 0x000a:
+			case 0x000c:
+			case 0x000e:
+				if (size < 2) { throw IOError(); }
+				destinationUInt16 = static_cast<uint16_t>(_gba->videoController().background((address - 0x0008) >> 1));
+				GBA_IO_LOAD_ADVANCE(2);
+				break;
 			default:
 				if (address >= _storageSize) { throw IOError(); }
 				destinationUInt8 = reinterpret_cast<uint8_t*>(_storage)[address];
@@ -126,6 +134,14 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 			case 0x0004: // DISPSTAT
 				if (size < 2) { throw IOError(); }
 				_gba->videoController().updateStatusRegister(dataUInt16);
+				GBA_IO_STORE_ADVANCE(2);
+				break;
+			case 0x0008: // BGXCNT
+			case 0x000a:
+			case 0x000c:
+			case 0x000e:
+				if (size < 2) { throw IOError(); }
+				_gba->videoController().setBackground((address - 0x0008) >> 1, static_cast<uint16_t>(dataUInt16));
 				GBA_IO_STORE_ADVANCE(2);
 				break;
 			case 0x00ba: // dma 0 control

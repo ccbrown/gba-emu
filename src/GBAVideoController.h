@@ -57,6 +57,31 @@ class GBAVideoController {
 		uint16_t controlRegister() const { return _controlRegister; }
 		void setControlRegister(uint16_t value);
 
+		enum ScreenSize : uint16_t {
+			kScreenSize256x256 = 0,
+			kScreenSize512x256 = 1,
+			kScreenSize256x512 = 2,
+			kScreenSize512x512 = 3,
+		};
+
+		struct Background {
+			Background() {}
+			Background(uint16_t data);
+			
+			explicit operator uint16_t() const;
+			
+			uint16_t priority = 0;
+			uint16_t characterBase = 0;
+			bool isMosaic = false;
+			bool isFullPalette = false;
+			uint16_t screenBase = 0;
+			bool wrapAround = false;
+			ScreenSize screenSize = kScreenSize256x256;
+		};
+		
+		const Background& background(int n) const { return _backgrounds[n]; }
+		void setBackground(int n, const Background& background) { _backgrounds[n] = background; }
+
 	private:
 		GameBoyAdvance* const _gba = nullptr;
 	
@@ -84,12 +109,16 @@ class GBAVideoController {
 		};
 
 		PixelCoordinate _refreshCoordinate{0, 0};
+			
+		Background _backgrounds[4];
 
 		void _updateDisplay();
 		
 		void _drawObjects();
 		void _drawTile(int x, int y, int tile, bool isBackground, int palette = -1);
 		void _drawPixel(int x, int y, const Pixel& pixel);
+		void _drawBitmapBackground(int x, int y, int w, int h, uint32_t address);
+		void _drawTileBackground(int x, int y, int w, int h, int background);
 
 		int _cycleCounter = 0;
 		
