@@ -75,7 +75,7 @@ class GameBoyAdvance {
 			void checkDMATransfers();
 
 			GameBoyAdvance* const _gba = nullptr;
-			void* _storage = nullptr;
+			uint8_t* _storage = nullptr;
 			const size_t _storageSize = 0x800;
 		} _io;		
 };

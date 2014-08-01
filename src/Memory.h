@@ -17,7 +17,7 @@ class Memory : public MemoryInterface<AddressType> {
 		struct ReadOnlyViolation {};
 
 		Memory(AddressType size, int flags = 0) : _size(size), _flags(flags) {
-			_storage = calloc(size, 1);
+			_storage = reinterpret_cast<uint8_t*>(calloc(size, 1));
 		}
 		
 		~Memory() {
@@ -28,19 +28,19 @@ class Memory : public MemoryInterface<AddressType> {
 
 		void load(void* destination, AddressType address, AddressType size) const override {
 			if (address + size > _size) { throw AccessViolation(); }
-			memcpy(destination, reinterpret_cast<char*>(_storage) + address, size);
+			memcpy(destination, _storage + address, size);
 		}
 
 		void store(AddressType address, const void* data, AddressType size) override {
 			if (_flags & kFlagReadOnly) { throw ReadOnlyViolation(); }
 			if (address + size > _size) { throw AccessViolation(); }
-			memcpy(reinterpret_cast<char*>(_storage) + address, data, size);
+			memcpy(_storage + address, data, size);
 		}
 		
-		void* storage() { return _storage; }
+		uint8_t* storage() { return _storage; }
 
 	private:
-		void* _storage = nullptr;
+		uint8_t* _storage = nullptr;
 		AddressType _size = 0;
 		int _flags = 0;
 };

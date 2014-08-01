@@ -46,7 +46,7 @@ void GameBoyAdvance::interruptRequest(uint16_t interrupts) {
 }
 
 GameBoyAdvance::IO::IO(GameBoyAdvance* gba) : _gba(gba) {
-	_storage = calloc(_storageSize, 1);
+	_storage = reinterpret_cast<uint8_t*>(calloc(_storageSize, 1));
 }
 
 GameBoyAdvance::IO::~IO() {
@@ -104,7 +104,7 @@ void GameBoyAdvance::IO::load(void* destination, uint32_t address, uint32_t size
 				break;
 			default:
 				if (address >= _storageSize) { throw IOError(); }
-				destinationUInt8 = reinterpret_cast<uint8_t*>(_storage)[address];
+				destinationUInt8 = _storage[address];
 				GBA_IO_LOAD_ADVANCE(1);
 		}
 	}
@@ -117,7 +117,7 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 		auto& dataUInt8 = *reinterpret_cast<const uint8_t*>(data);
 		auto& dataUInt16 = *reinterpret_cast<const LittleEndian<uint16_t>*>(data);
 	
-		auto destination = reinterpret_cast<uint8_t*>(_storage) + address;
+		auto destination = _storage + address;
 		auto& destinationUInt8 = *destination;
 		auto& destinationUInt16 = *reinterpret_cast<LittleEndian<uint16_t>*>(destination);
 
@@ -144,16 +144,32 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 				_gba->videoController().setBackground((address - 0x0008) >> 1, static_cast<uint16_t>(dataUInt16));
 				GBA_IO_STORE_ADVANCE(2);
 				break;
-			case 0x00ba: // dma 0 control
-			case 0x00c6: // dma 1 control
-			case 0x00d2: // dma 2 control
-			case 0x00de: // dma 3 control
+			case 0x0010: // bg x offsets
+			case 0x0014:
+			case 0x0018:
+			case 0x001c:
+				if (size < 2) { throw IOError(); }
+				_gba->videoController().setBackgroundXOffset((address - 0x0010) >> 2, static_cast<uint16_t>(dataUInt16));
+				GBA_IO_STORE_ADVANCE(2);
+				break;
+			case 0x0012: // bg y offsets
+			case 0x0016:
+			case 0x001a:
+			case 0x001e:
+				if (size < 2) { throw IOError(); }
+				_gba->videoController().setBackgroundYOffset((address - 0x0012) >> 2, static_cast<uint16_t>(dataUInt16));
+				GBA_IO_STORE_ADVANCE(2);
+				break;
+			case 0x00ba: // dma control
+			case 0x00c6:
+			case 0x00d2:
+			case 0x00de:
 				if (size < 2) { throw IOError(); }
 				destinationUInt16 = dataUInt16;
 				if (BIT15(dataUInt16)) {
 					uint32_t dma = (address - 0x00ba) / 12;
 					auto& registers = _dmaRegisters[dma];
-					auto dmaBase = reinterpret_cast<uint8_t*>(_storage) + 0x00b0 + dma * 12;
+					auto dmaBase = _storage + 0x00b0 + dma * 12;
 					registers.source = *reinterpret_cast<LittleEndian<uint32_t>*>(dmaBase + 0) & 0x0fffffff;
 					registers.destination = *reinterpret_cast<LittleEndian<uint32_t>*>(dmaBase + 4) & 0x0fffffff;
 					registers.count = *reinterpret_cast<LittleEndian<uint16_t>*>(dmaBase + 8);
@@ -182,7 +198,7 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 
 void GameBoyAdvance::IO::checkDMATransfers() {
 	for (uint32_t i = 0; i < 4; ++i) {
-		auto dmaBase = reinterpret_cast<uint8_t*>(_storage) + 0x00b0 + i * 12;
+		auto dmaBase = _storage + 0x00b0 + i * 12;
 		auto& control = *reinterpret_cast<LittleEndian<uint16_t>*>(dmaBase + 10);
 
 		if (!BIT15(control)) { continue; }

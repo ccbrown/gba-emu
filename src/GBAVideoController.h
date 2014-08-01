@@ -57,13 +57,6 @@ class GBAVideoController {
 		uint16_t controlRegister() const { return _controlRegister; }
 		void setControlRegister(uint16_t value);
 
-		enum ScreenSize : uint16_t {
-			kScreenSize256x256 = 0,
-			kScreenSize512x256 = 1,
-			kScreenSize256x512 = 2,
-			kScreenSize512x512 = 3,
-		};
-
 		struct Background {
 			Background() {}
 			Background(uint16_t data);
@@ -71,16 +64,19 @@ class GBAVideoController {
 			explicit operator uint16_t() const;
 			
 			uint16_t priority = 0;
-			uint16_t characterBase = 0;
+			uint16_t tiles = 0;
 			bool isMosaic = false;
 			bool isFullPalette = false;
-			uint16_t screenBase = 0;
+			uint16_t mapBase = 0;
 			bool wrapAround = false;
-			ScreenSize screenSize = kScreenSize256x256;
+			uint16_t screenSize = 0;
 		};
 		
 		const Background& background(int n) const { return _backgrounds[n]; }
-		void setBackground(int n, const Background& background) { _backgrounds[n] = background; }
+		void setBackground(int n, const Background& background);
+
+		void setBackgroundXOffset(int n, uint16_t offset) { _backgroundXOffsets[n] = offset; }
+		void setBackgroundYOffset(int n, uint16_t offset) { _backgroundYOffsets[n] = offset; }
 
 	private:
 		GameBoyAdvance* const _gba = nullptr;
@@ -111,14 +107,27 @@ class GBAVideoController {
 		PixelCoordinate _refreshCoordinate{0, 0};
 			
 		Background _backgrounds[4];
+		uint16_t _backgroundXOffsets[4]{0};
+		uint16_t _backgroundYOffsets[4]{0};
 
 		void _updateDisplay();
 		
-		void _drawObjects();
-		void _drawTile(int x, int y, int tile, bool isBackground, int palette = -1);
-		void _drawPixel(int x, int y, const Pixel& pixel);
-		void _drawBitmapBackground(int x, int y, int w, int h, uint32_t address);
-		void _drawTileBackground(int x, int y, int w, int h, int background);
+		struct Window {
+			Window() {}
+			Window(int x, int y, int width, int height) : x(x), y(y), width(width), height(height) {}
+			
+			int x = 0;
+			int y = 0;
+			int width = 0;
+			int height = 0;
+		};
+		
+		void _drawObjects(const Window& window);
+		void _drawTile(const Window& window, int x, int y, uint32_t address, bool isBackground, int palette = -1, bool flipHorizontally = false, bool flipVertically = false);
+		void _drawPixel(const Window& window, int x, int y, const Pixel& pixel);
+		void _drawBitmap(const Window& window, int x, int y, int w, int h, uint32_t frameAddress, int frameWidth);
+		void _drawTileBackground(const Window& window, int bg, bool textMode);
+		void _drawTextModeBackgroundMap(const Window& window, int x, int y, uint32_t address, uint32_t tiles, bool isFullPalette);
 
 		int _cycleCounter = 0;
 		

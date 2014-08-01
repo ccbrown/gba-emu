@@ -141,28 +141,61 @@ void GBAVideoController::setControlRegister(uint16_t value) {
 	}
 }
 
-void GBAVideoController::_drawPixel(int x, int y, const Pixel& pixel) {
-	if (x >= 240 || x < 0 || y >= 160 || y < 0) { return; }
-	_drawPixelBuffer[x + y * 240] = pixel;
+void GBAVideoController::setBackground(int n, const Background& background) {
+	printf("background %d update: %04x\n", n, static_cast<uint16_t>(background));
+	_backgrounds[n] = background;
 }
 
-void GBAVideoController::_drawBitmapBackground(int x, int y, int w, int h, uint32_t address) {
-	for (int bgx = 0; bgx < w; ++bgx) {
-		for (int bgy = 0; bgy < h; ++bgy) {
-			auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage()) + bgx + bgy * 240 + address;
-			_drawPixel(x + bgx, y + bgy, pixel);
+void GBAVideoController::_drawPixel(const Window& window, int x, int y, const Pixel& pixel) {
+	if (x >= window.width || x < 0 || y >= window.height || y < 0) { return; }
+	_drawPixelBuffer[window.x + x + (window.y + y) * 240] = pixel;
+}
+
+void GBAVideoController::_drawBitmap(const Window& window, int x, int y, int w, int h, uint32_t frameAddress, int frameWidth) {
+	for (int bx = 0; bx < w; ++bx) {
+		for (int by = 0; by < h; ++by) {
+			auto pixel = *reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage() + frameAddress) + bx + by * frameWidth;
+			_drawPixel(window, x + bx, y + by, pixel);
 		}
 	}
 }
 
-void GBAVideoController::_drawTileBackground(int x, int y, int w, int h, int background) {
-	// TODO
+void GBAVideoController::_drawTileBackground(const Window& window, int bg, bool textMode) {
+	auto& background = _backgrounds[bg];
+	
+	if (textMode) {
+		_drawTextModeBackgroundMap(window, _backgroundXOffsets[bg], _backgroundYOffsets[bg], background.mapBase, background.tiles * 0x4000, background.isFullPalette);
+	} else {
+		// TODO
+		for (int bgx = 0; bgx < window.width; ++bgx) {
+			for (int bgy = 0; bgy < window.height; ++bgy) {
+				_drawPixel(window, window.x + bgx, window.y + bgy, Pixel(100, 150, 100));
+			}
+		}
+	}
+}
+
+void GBAVideoController::_drawTextModeBackgroundMap(const Window& window, int x, int y, uint32_t address, uint32_t tiles, bool isFullPalette) {
+	auto entries = reinterpret_cast<LittleEndian<uint16_t>*>(_videoRAM.storage() + address);
+
+	for (int tx = 0; tx < 32; ++tx) {
+		for (int ty = 0; ty < 32; ++ty) {
+			auto entry = entries[tx + ty * 32];
+			auto tile = BITFIELD_UINT16(entry, 9, 0);
+			auto flipHorizontally = BIT10(entry);
+			auto flipVertically = BIT11(entry);
+			auto palette = isFullPalette ? -1 : BITFIELD_UINT16(entry, 15, 12);
+			_drawTile(window, x + tx * 8, y + ty * 8, tiles + tile * (isFullPalette ? 64 : 32), true, palette, flipHorizontally, flipVertically);
+		}
+	}
 }
 
 void GBAVideoController::_updateDisplay() {
+	Window window(0, 0, 240, 160);
+	
 	for (int x = 0; x < 240; ++x) {
 		for (int y = 0; y < 160; ++y) {
-			_drawPixel(x, y, Pixel(*reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage())));
+			_drawPixel(window, x, y, Pixel(*reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage())));
 		}
 	}
 	
@@ -170,47 +203,47 @@ void GBAVideoController::_updateDisplay() {
 		case 0:
 			// TODO: respect priority
 			if (_controlRegister & kControlFlagBG0Enable) {
-				_drawTileBackground(0, 0, 240, 160, 0);
+				_drawTileBackground(window, 0, true);
 			}
 			if (_controlRegister & kControlFlagBG1Enable) {
-				_drawTileBackground(0, 0, 240, 160, 1);
+				_drawTileBackground(window, 1, true);
 			}
 			if (_controlRegister & kControlFlagBG2Enable) {
-				_drawTileBackground(0, 0, 240, 160, 2);
+				_drawTileBackground(window, 2, true);
 			}
 			if (_controlRegister & kControlFlagBG3Enable) {
-				_drawTileBackground(0, 0, 240, 160, 3);
+				_drawTileBackground(window, 3, true);
 			}
 		case 1:
 		case 2:
 			// TODO
 			break;
 		case 3:
-			_drawBitmapBackground(0, 0, 240, 160, 0);
+			_drawBitmap(window, 0, 0, 240, 160, 0, 240);
 			break;
 		case 4:
-			_drawBitmapBackground(0, 0, 240, 160, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
+			_drawBitmap(window, 0, 0, 240, 160, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0, 240);
 			break;
 		case 5:
-			_drawBitmapBackground(0, 0, 160, 128, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0);
+			_drawBitmap(window, 0, 0, 160, 128, (_controlRegister & kControlFlagDisplayFrame) ? 0x5000 : 0, 160);
 			break;
 		default:
 			for (int x = 0; x < 240; ++x) {
 				for (int y = 0; y < 160; ++y) {
-					_drawPixel(x, y, Pixel(0, 0, 0));
+					_drawPixel(window, x, y, Pixel(0, 0, 0));
 				}
 			}
 	}
 	
 	if (_controlRegister & kControlFlagOBJEnable) {
-		_drawObjects();
+		_drawObjects(window);
 	}
 
 	std::unique_lock<std::mutex> lock(_renderMutex);
 	std::swap(_drawPixelBuffer, _readyPixelBuffer);
 }
 
-void GBAVideoController::_drawObjects() {	
+void GBAVideoController::_drawObjects(const Window& window) {	
 	for (int i = 0; i < 128; ++i) {
 		uint16_t attributes0 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8);
 		uint16_t attributes1 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8 + 2);
@@ -263,7 +296,9 @@ void GBAVideoController::_drawObjects() {
 			height <<= 1;
 		}
 
+		auto tilesAddress = (_controlRegister & kControlMaskBGMode) < 3 ? 0x00010000 : 0x00014000;
 		auto tileBase = BITFIELD_UINT32(attributes2, 9, 0);
+
 		for (int row = 0; row < (height >> 3); ++row) {
 			int rowTile = tileBase + (
 				(_controlRegister & kControlFlagOBJTileMapping)
@@ -274,22 +309,21 @@ void GBAVideoController::_drawObjects() {
 			);
 			for (int col = 0; col < (width >> 3); ++col) {
 				int tile = rowTile + (col << (BIT13(attributes0) ? 1 : 0));
-				_drawTile(x + (col << 3), y + (row << 3), tile, false, BIT13(attributes0) ? -1 : BITFIELD_UINT32(attributes2, 15, 12));
+				_drawTile(window, x + (col << 3), y + (row << 3), tilesAddress + tile * 32, false, BIT13(attributes0) ? -1 : BITFIELD_UINT32(attributes2, 15, 12));
 			}
 		}
 	}
 }
 
-void GBAVideoController::_drawTile(int x, int y, int tile, bool isBackground, int palette) {
-	auto tilesAddress = (_controlRegister & kControlMaskBGMode) < 3 ? 0x00010000 : 0x00014000;
-	auto tileData = reinterpret_cast<uint8_t*>(_videoRAM.storage()) + tilesAddress + tile * 32;
+void GBAVideoController::_drawTile(const Window& window, int x, int y, uint32_t address, bool isBackground, int palette, bool flipHorizontally, bool flipVertically) {
+	auto tileData = _videoRAM.storage() + address;
 	auto paletteData = reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage()) + (isBackground ? 0 : 0x100) + (palette < 0 ? 0 : (palette << 4));
 	for (int ty = 0; ty < 8; ++ty) {
 		for (int tx = 0; tx < 8; ++tx) {
-			int pixel = (ty << 3) + tx;
+			int pixel = ty * 8 + tx;
 			int color = palette < 0 ? *(tileData + pixel) : ((pixel & 1) ? ((*(tileData + (pixel >> 1)) & 0xf0) >> 4) : (*(tileData + (pixel >> 1)) & 0x0f));
 			if (color || isBackground) {
-				_drawPixel(x + tx, y + ty, Pixel(paletteData[color]));
+				_drawPixel(window, x + (flipHorizontally ? (8 - tx) : tx), y + (flipVertically ? (8 - ty) : ty), Pixel(paletteData[color]));
 			}
 		}
 	}
@@ -297,14 +331,14 @@ void GBAVideoController::_drawTile(int x, int y, int tile, bool isBackground, in
 
 GBAVideoController::Background::Background(uint16_t data)
 	: priority(BITFIELD_UINT16(data, 1, 0))
-	, characterBase(BITFIELD_UINT16(data, 3, 2))
+	, tiles(BITFIELD_UINT16(data, 3, 2))
 	, isMosaic(BIT6(data))
 	, isFullPalette(BIT7(data))
-	, screenBase(BITFIELD_UINT16(data, 12, 8))
+	, mapBase(BITFIELD_UINT16(data, 12, 8))
 	, wrapAround(BIT13(data))
-	, screenSize(static_cast<ScreenSize>(BITFIELD_UINT16(data, 15, 14)))
+	, screenSize(BITFIELD_UINT16(data, 15, 14))
 {}
 			
 GBAVideoController::Background::operator uint16_t() const {
-	return (screenSize << 14) | ((wrapAround ? 1 : 0) << 13) | (screenBase << 8) | ((isFullPalette ? 1 : 0) << 7) | ((isMosaic ? 1 : 0) << 6) | (characterBase << 2) | priority;
+	return (screenSize << 14) | ((wrapAround ? 1 : 0) << 13) | (mapBase << 8) | ((isFullPalette ? 1 : 0) << 7) | ((isMosaic ? 1 : 0) << 6) | (tiles << 2) | priority;
 }
