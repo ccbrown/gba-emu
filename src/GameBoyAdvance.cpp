@@ -111,6 +111,7 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 	
 		auto destination = reinterpret_cast<uint8_t*>(_storage) + address;
 		auto& destinationUInt8 = *destination;
+		auto& destinationUInt16 = *reinterpret_cast<LittleEndian<uint16_t>*>(destination);
 
 		if (address > 0x0800) {
 			address = 0x0800 + (address & 0xffff);
@@ -127,6 +128,23 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 				_gba->videoController().updateStatusRegister(dataUInt16);
 				GBA_IO_STORE_ADVANCE(2);
 				break;
+			case 0x00ba: // dma 0 control
+			case 0x00c6: // dma 1 control
+			case 0x00d2: // dma 2 control
+			case 0x00de: // dma 3 control
+				if (size < 2) { throw IOError(); }
+				destinationUInt16 = dataUInt16;
+				if (BIT15(dataUInt16)) {
+					uint32_t dma = (address - 0x00ba) / 12;
+					auto& registers = _dmaRegisters[dma];
+					auto dmaBase = reinterpret_cast<uint8_t*>(_storage) + 0x00b0 + dma * 12;
+					registers.source = *reinterpret_cast<LittleEndian<uint32_t>*>(dmaBase + 0) & 0x0fffffff;
+					registers.destination = *reinterpret_cast<LittleEndian<uint32_t>*>(dmaBase + 4) & 0x0fffffff;
+					registers.count = *reinterpret_cast<LittleEndian<uint16_t>*>(dmaBase + 8);
+				}
+				GBA_IO_STORE_ADVANCE(2);
+				checkDMATransfers();
+				break;
 			case 0x0202: // IF - clears bits to acknowledge interrupts
 			case 0x0203:
 				destinationUInt8 = (destinationUInt8 & ~dataUInt8);
@@ -140,8 +158,71 @@ void GameBoyAdvance::IO::store(uint32_t address, const void* data, uint32_t size
 				break;
 			default:
 				if (address >= _storageSize) { throw IOError(); }
-				destinationUInt8 = *reinterpret_cast<const uint8_t*>(data);
+				destinationUInt8 = dataUInt8;
 				GBA_IO_STORE_ADVANCE(1);
+		}
+	}
+}
+
+void GameBoyAdvance::IO::checkDMATransfers() {
+	for (uint32_t i = 0; i < 4; ++i) {
+		auto dmaBase = reinterpret_cast<uint8_t*>(_storage) + 0x00b0 + i * 12;
+		auto& control = *reinterpret_cast<LittleEndian<uint16_t>*>(dmaBase + 10);
+
+		if (!BIT15(control)) { continue; }
+
+		uint16_t start = BITFIELD_UINT16(control, 13, 12);
+
+		auto displayStatus = _gba->videoController().statusRegister();
+
+		if (start == 1 && !(displayStatus & GBAVideoController::kStatusFlagVBlank)) {
+			continue;
+		}
+
+		if (start == 2 && ((displayStatus & GBAVideoController::kStatusFlagVBlank) || !(displayStatus & GBAVideoController::kStatusFlagHBlank))) {
+			continue;
+		}
+		
+		if (start == 3) {
+			// TODO: sound fifo dmas
+			control = control & 0x7fff;
+			continue;
+		}
+		
+		if (BIT9(control) || BIT11(control)) {
+			throw UnimplementedFeature();
+		}
+		
+		if (BIT7(control) && BIT8(control)) {
+			throw IOError();
+		}
+
+		auto& registers = _dmaRegisters[i];
+
+		uint32_t count = registers.count ? registers.count : (i == 3 ? 0x10000 : 0x4000);
+
+		printf("dma transfer: %08u %s words from %08x to %08x\n", count, BIT10(control) ? "32-bit" : "16-bit", registers.source, registers.destination);
+
+		while (count) {
+			if (BIT10(control)) {
+				_gba->cpu().mmu().store<uint32_t>(registers.destination, _gba->cpu().mmu().load<uint32_t>(registers.source));
+			} else {
+				_gba->cpu().mmu().store<uint16_t>(registers.destination, _gba->cpu().mmu().load<uint16_t>(registers.source));
+			}
+			auto size = BIT10(control) ? 4 : 2;
+			registers.destination += (BIT5(control) == BIT6(control) ? size : (!BIT6(control) ? -size : 0));
+			registers.source += (!BIT7(control) && !BIT8(control) ? size : (!BIT8(control) ? -size : 0));
+			--count;
+		}
+		
+		if (BIT5(control) && BIT6(control)) {
+			registers.destination = *reinterpret_cast<LittleEndian<uint32_t>*>(dmaBase + 4) & 0x0fffffff;
+		}		
+		
+		control = control & 0x7fff;
+
+		if (BIT14(control)) {
+			_gba->interruptRequest(kInterruptDMA0 << i);
 		}
 	}
 }

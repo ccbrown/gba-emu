@@ -57,14 +57,25 @@ class GameBoyAdvance {
 			virtual ~IO();
 			
 			struct IOError {};
+			struct UnimplementedFeature {};
 				
 			void interruptRequest(uint16_t interrupts);
 			
 			virtual void load(void* destination, uint32_t address, uint32_t size) const override;
 			virtual void store(uint32_t address, const void* data, uint32_t size) override;
 
+			struct DMARegisters {
+				uint32_t source = 0;
+				uint32_t destination = 0;
+				uint16_t count = 0;
+			};
+			
+			DMARegisters _dmaRegisters[4];
+			
+			void checkDMATransfers();
+
 			GameBoyAdvance* const _gba = nullptr;
 			void* _storage = nullptr;
 			const size_t _storageSize = 0x800;
-		} _io;
+		} _io;		
 };

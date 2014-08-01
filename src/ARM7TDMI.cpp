@@ -122,7 +122,7 @@ void ARM7TDMI::_executeARM(uint32_t opcode) {
 
 	if ((opcode & 0x0f000000) == 0x0f000000) {
 		// SWI
-		LOG_STEP("SWI %u\n", BITFIELD_UINT32(opcode, 23, 0));
+		LOG_STEP("SWI %08x\n", BITFIELD_UINT32(opcode, 23, 0));
 		setMode(kModeSupervisor);
 		setCPSRFlags(kPSRFlagIRQDisable);
 		_branchWithLink(0x00000008);
@@ -364,7 +364,7 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 	
 	if ((opcode & 0xff00) == 0xdf00) {
 		// SWI
-		LOG_STEP("SWI %u\n", BITFIELD_UINT32(opcode, 7, 0));
+		LOG_STEP("SWI %08x\n", BITFIELD_UINT32(opcode, 7, 0));
 		setMode(kModeSupervisor);
 		setCPSRFlags(kPSRFlagIRQDisable);
 		_branchWithLink(0x00000008);
@@ -1169,9 +1169,11 @@ bool ARM7TDMI::_executeThumbHighRegisterOp(uint16_t opcode) {
 			// MOV
 			auto value = getRegister(rs);
 			LOG_STEP("MOV r%u (%08x) to r%u\n", rs, value, rd);
-			setRegister(rd, value);
 			if (rd == kVirtualRegisterPC) {
+				setRegister(rd, value & ~1);
 				_flushPipeline();
+			} else {
+				setRegister(rd, value);
 			}
 		}
 	} else if (BIT8(opcode)) {
