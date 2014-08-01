@@ -572,15 +572,18 @@ void ARM7TDMI::_executeThumb(uint16_t opcode) {
 		auto rb = BITFIELD_REGISTER(opcode, 10, 8);
 		auto address = getRegister(rb);
 		uint32_t rlist = BITFIELD_UINT32(opcode, 7, 0);
-		LOG_STEP("%s r%u: ", BIT11(opcode) ? "LDMIA" : "STMIA", rb);
+		LOG_STEP("%s r%u (%08x): ", BIT11(opcode) ? "LDMIA" : "STMIA", rb, address);
 		for (int i = 0; i <= 7; ++i) {
 			if (!(rlist & (1 << i))) { continue; }
 			auto r = static_cast<VirtualRegister>(kVirtualRegisterR0 + i);
-			LOG_STEP("r%u ", r);
 			if (BIT11(opcode)) {
-				setRegister(r, mmu().load<LittleEndian<uint32_t>>(address));
+				auto value = static_cast<uint32_t>(mmu().load<LittleEndian<uint32_t>>(address));
+				LOG_STEP("r%u (%08x) ", r, value);
+				setRegister(r, value);
 			} else {
-				mmu().store<LittleEndian<uint32_t>>(address, getRegister(r));
+				auto value = getRegister(r);
+				LOG_STEP("r%u (%08x) ", r, value);
+				mmu().store<LittleEndian<uint32_t>>(address, value);
 			}
 			address += 4;
 		}

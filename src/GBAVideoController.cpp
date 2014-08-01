@@ -194,7 +194,7 @@ void GBAVideoController::_updateDisplay() {
 	std::swap(_drawPixelBuffer, _readyPixelBuffer);
 }
 
-void GBAVideoController::_drawObjects() {
+void GBAVideoController::_drawObjects() {	
 	for (int i = 0; i < 128; ++i) {
 		uint16_t attributes0 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8);
 		uint16_t attributes1 = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_objectAttributeRAM.storage()) + i * 8 + 2);
@@ -214,7 +214,7 @@ void GBAVideoController::_drawObjects() {
 		auto shape = BITFIELD_UINT32(attributes0, 15, 14);
 		auto size  = BITFIELD_UINT32(attributes1, 15, 14);
 
-		if (shape) {
+		if (!shape) {
 			// square
 			width = height = (8 << size);
 		} else {
@@ -247,12 +247,18 @@ void GBAVideoController::_drawObjects() {
 			height <<= 1;
 		}
 
+		auto tileBase = BITFIELD_UINT32(attributes2, 9, 0);
 		for (int row = 0; row < (height >> 3); ++row) {
-			auto tileBase = BITFIELD_UINT32(attributes2, 9, 0);
-			int rowTile = tileBase + (_controlRegister & kControlFlagOBJTileMapping) ? (row * (width >> 3)) : (row * 0x20);
+			int rowTile = tileBase + (
+				(_controlRegister & kControlFlagOBJTileMapping)
+					// one dimensional mapping
+					? (row * (width >> (BIT13(attributes0) ? 2 : 3)))
+					// two dimensional mapping
+					: (row * 0x20)
+			);
 			for (int col = 0; col < (width >> 3); ++col) {
-				int tile = rowTile + col;
-				_drawTile(x + (row << 3), y + (col << 3), tile, false, BIT13(attributes0) ? -1 : BITFIELD_UINT32(attributes2, 15, 12));
+				int tile = rowTile + (col << (BIT13(attributes0) ? 1 : 0));
+				_drawTile(x + (col << 3), y + (row << 3), tile, false, BIT13(attributes0) ? -1 : BITFIELD_UINT32(attributes2, 15, 12));
 			}
 		}
 	}
@@ -260,7 +266,7 @@ void GBAVideoController::_drawObjects() {
 
 void GBAVideoController::_drawTile(int x, int y, int tile, bool isBackground, int palette) {
 	auto tilesAddress = (_controlRegister & kControlMaskBGMode) < 3 ? 0x00010000 : 0x00014000;
-	auto tileData = reinterpret_cast<uint8_t*>(_videoRAM.storage()) + tilesAddress + tile * (palette < 0 ? 64 : 32);
+	auto tileData = reinterpret_cast<uint8_t*>(_videoRAM.storage()) + tilesAddress + tile * 32;
 	auto paletteData = reinterpret_cast<LittleEndian<uint16_t>*>(_paletteRAM.storage()) + (isBackground ? 0 : 0x100) + (palette < 0 ? 0 : (palette << 4));
 	for (int ty = 0; ty < 8; ++ty) {
 		for (int tx = 0; tx < 8; ++tx) {
