@@ -3,7 +3,7 @@
 #include "FixedEndian.h"
 #include "BIT_MACROS.h"
 
-#include <thread>
+#include <cassert>
 
 GameBoyAdvance::GameBoyAdvance() : _videoController(this), _io(this) {
 	_cpu.mmu().attach(0x0, &_systemROM, 0, _systemROM.size());
@@ -12,19 +12,30 @@ GameBoyAdvance::GameBoyAdvance() : _videoController(this), _io(this) {
 	_cpu.mmu().attach(0x03ffff00, &_onChipRAM, 0x7f00, 0x100);
 
 	_cpu.mmu().attach(0x04000000, &_io, 0x00, 0x01000000);
-
-	_cpu.mmu().attach(0x08000000, &_gamePakROM, 0, _gamePakROM.size());
-	_cpu.mmu().attach(0x0a000000, &_gamePakROM, 0, _gamePakROM.size());
-	_cpu.mmu().attach(0x0c000000, &_gamePakROM, 0, _gamePakROM.size());
-	_cpu.mmu().attach(0x0e000000, &_gamePakSRAM, 0, _gamePakSRAM.size());
 }
 
 void GameBoyAdvance::loadBIOS(const void* data, size_t size) {
 	memcpy(_systemROM.storage(), data, size);
 }
 
-void GameBoyAdvance::loadGamePak(const void* data, size_t size) {
-	memcpy(_gamePakROM.storage(), data, size);
+void GameBoyAdvance::loadGamePak(const void* rom, size_t size, size_t eeprom) {
+	assert(size <= 0x02000000);
+	
+	memcpy(_gamePakROM.storage(), rom, size);
+
+	_cpu.mmu().attach(0x08000000, &_gamePakROM, 0, _gamePakROM.size());
+	_cpu.mmu().attach(0x0a000000, &_gamePakROM, 0, _gamePakROM.size());
+	_cpu.mmu().attach(0x0c000000, &_gamePakROM, 0, std::min<uint32_t>(eeprom ? (size < 0x01000000 ? 0x01000000 : 0x01ffff00) : 0x02000000, _gamePakROM.size()));
+	_cpu.mmu().attach(0x0e000000, &_gamePakSRAM, 0, _gamePakSRAM.size());
+
+	if (eeprom) {
+		_gamePakEEPROM.reset(new GBAEEPROM(eeprom));
+		if (size <= 0x01000000) {
+			_cpu.mmu().attach(0x0d000000, _gamePakEEPROM.get(), 0, 0x01000000);
+		} else {
+			_cpu.mmu().attach(0x0dffff00, _gamePakEEPROM.get(), 0, 0x100);
+		}
+	}
 }
 
 void GameBoyAdvance::run() {
@@ -54,10 +65,10 @@ GameBoyAdvance::IO::~IO() {
 }
 
 void GameBoyAdvance::IO::interruptRequest(uint16_t interrupts) {
-	auto& enabled  = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_storage) + 0x200);
-	auto& requests = *reinterpret_cast<LittleEndian<uint16_t>*>(reinterpret_cast<uint8_t*>(_storage) + 0x202);
-	
-	if (interrupts & enabled) {
+	auto& enabled  = *reinterpret_cast<LittleEndian<uint16_t>*>(_storage + 0x200);
+	auto& requests = *reinterpret_cast<LittleEndian<uint16_t>*>(_storage + 0x202);
+
+	if ((interrupts & enabled) && BIT0(*reinterpret_cast<LittleEndian<uint32_t>*>(_storage + 0x208))) {
 		_gba->_isInHaltMode = false;
 		requests = (requests | (enabled & interrupts));
 		_gba->cpu().interrupt();
@@ -233,13 +244,13 @@ void GameBoyAdvance::IO::checkDMATransfers() {
 
 		uint32_t count = registers.count ? registers.count : (i == 3 ? 0x10000 : 0x4000);
 
-		printf("dma transfer: %08u %s words from %08x to %08x\n", count, BIT10(control) ? "32-bit" : "16-bit", registers.source, registers.destination);
+		printf("dma transfer: %08x %s words from %08x to %08x\n", count, BIT10(control) ? "32-bit" : "16-bit", registers.source, registers.destination);
 
 		while (count) {
 			if (BIT10(control)) {
-				_gba->cpu().mmu().store<uint32_t>(registers.destination, _gba->cpu().mmu().load<uint32_t>(registers.source));
+				_gba->cpu().mmu().store<uint32_t>(registers.destination & ~3, _gba->cpu().mmu().load<uint32_t>(registers.source & ~3));
 			} else {
-				_gba->cpu().mmu().store<uint16_t>(registers.destination, _gba->cpu().mmu().load<uint16_t>(registers.source));
+				_gba->cpu().mmu().store<uint16_t>(registers.destination & ~1, _gba->cpu().mmu().load<uint16_t>(registers.source & ~1));
 			}
 			auto size = BIT10(control) ? 4 : 2;
 			registers.destination += (BIT5(control) == BIT6(control) ? size : (!BIT6(control) ? -size : 0));

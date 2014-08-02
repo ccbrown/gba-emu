@@ -30,7 +30,7 @@ void ARM7TDMI::step() {
 			}
 			executedInstruction = true;
 		}
-	
+
 		_toExecute = _toDecode;
 	
 		if (getCPSRFlag(kPSRFlagThumb)) {
@@ -65,7 +65,7 @@ void ARM7TDMI::interrupt() {
 
 	setMode(kModeIRQ);
 	setCPSRFlags(kPSRFlagIRQDisable);
-	setRegister(kVirtualRegisterLR, getRegister(kVirtualRegisterPC) - (_toExecute.isValid ? 2 : 3) * (getCPSRFlag(kPSRFlagThumb) ? 2 : 4) + 4);
+	setRegister(kVirtualRegisterLR, getRegister(kVirtualRegisterPC) - (_toExecute.isValid ? 2 : (_toDecode.isValid ? 1 : 0)) * (getCPSRFlag(kPSRFlagThumb) ? 2 : 4) + 4);
 	branch(0x00000018);
 	clearCPSRFlags(kPSRFlagThumb);
 }
@@ -779,7 +779,6 @@ bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
 			setRegister(rd, _aluOperation(kALUOperationORR, getRegister(ARMRn(opcode)), op2, updateFlags));
 			break;
 		case 0xd: {
-			if (ARMRn(opcode) != kVirtualRegisterR0) { return false; }
 			auto rd = ARMRd(opcode);
 			LOG_STEP("MOV %08x to r%u\n", op2, rd);
 			setRegister(rd, op2);
@@ -793,7 +792,6 @@ bool ARM7TDMI::_executeARMDataProcessing(uint32_t opcode) {
 			setRegister(rd, _aluOperation(kALUOperationBIC, getRegister(ARMRn(opcode)), op2, updateFlags));
 			break;
 		case 0xf: {
-			if (ARMRn(opcode) != kVirtualRegisterR0) { return false; }
 			auto rd = ARMRd(opcode);
 			LOG_STEP("MVN ~%08x to r%u\n", op2, rd);
 			setRegister(rd, ~op2);

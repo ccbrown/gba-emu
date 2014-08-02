@@ -5,14 +5,15 @@
 #include <map>
 
 template <typename AddressType>
-class MMU {
+class MMU : public MemoryInterface<AddressType> {
 	public:
-		struct AccessViolation {};
-	
 		void attach(AddressType address, MemoryInterface<AddressType>* memory, AddressType offset, AddressType size) {
 			_attachedMemory[address] = AttachedMemory(memory, offset, size);
 		}
-
+		
+		using typename MemoryInterface<AddressType>::AccessViolation;
+		using typename MemoryInterface<AddressType>::ReadOnlyViolation;
+		
 		template <typename T>
 		T load(AddressType address) {
 			T ret;
@@ -20,7 +21,7 @@ class MMU {
 			return ret;
 		}
 
-		void load(void* destination, AddressType address, AddressType size) {
+		virtual void load(void* destination, AddressType address, AddressType size) const override {
 			if (_attachedMemory.empty()) { throw AccessViolation(); }
 
 			auto it = _attachedMemory.lower_bound(address);
@@ -43,8 +44,8 @@ class MMU {
 		void store(AddressType address, T data) {
 			store(address, &data, static_cast<AddressType>(sizeof(T)));
 		}
-		
-		void store(AddressType address, const void* data, AddressType size) {
+
+		virtual void store(AddressType address, const void* data, AddressType size) override {
 			if (_attachedMemory.empty()) { throw AccessViolation(); }
 
 			auto it = _attachedMemory.lower_bound(address);
@@ -60,7 +61,11 @@ class MMU {
 				throw AccessViolation();
 			}
 			
-			return it->second.memory->store(address - it->first + it->second.offset, data, size);
+			try {
+				return it->second.memory->store(address - it->first + it->second.offset, data, size);
+			} catch (ReadOnlyViolation e) {
+				printf("warning: attempt to write %08x bytes to read-only memory at %08x\n", size, address);
+			}
 		}
 		
 	private:

@@ -3,6 +3,7 @@
 #include "ARM7TDMI.h"
 #include "Memory.h"
 
+#include "GBAEEPROM.h"
 #include "GBAVideoController.h"
 
 class GameBoyAdvance {
@@ -10,7 +11,7 @@ class GameBoyAdvance {
 		GameBoyAdvance();
 		
 		void loadBIOS(const void* data, size_t size);
-		void loadGamePak(const void* data, size_t size);
+		void loadGamePak(const void* rom, size_t size, size_t eeprom = 0);
 		
 		void run();
 		
@@ -49,6 +50,7 @@ class GameBoyAdvance {
 		// gamepak memory
 		Memory<uint32_t> _gamePakROM{0x2000000, Memory<uint32_t>::kFlagReadOnly};
 		Memory<uint32_t> _gamePakSRAM{0x10000};
+		std::unique_ptr<GBAEEPROM> _gamePakEEPROM;
 
 		bool _isInHaltMode = false;
 

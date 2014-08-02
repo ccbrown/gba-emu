@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
 	{
 		std::ifstream ifs(argv[2]);
 		std::string fileContents((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-		gGBA->loadGamePak(fileContents.data(), fileContents.size());
+		gGBA->loadGamePak(fileContents.data(), fileContents.size(), 8192);
 	}
 
 	std::thread gbaThread([] {

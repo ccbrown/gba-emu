@@ -12,9 +12,6 @@ class Memory : public MemoryInterface<AddressType> {
 		enum {
 			kFlagReadOnly = (1 << 0),
 		};
-		
-		struct AccessViolation {};
-		struct ReadOnlyViolation {};
 
 		Memory(AddressType size, int flags = 0) : _size(size), _flags(flags) {
 			_storage = reinterpret_cast<uint8_t*>(calloc(size, 1));
@@ -24,8 +21,11 @@ class Memory : public MemoryInterface<AddressType> {
 			free(_storage);
 		}
 		
-		AddressType size() const { return _size; }
+		using typename MemoryInterface<AddressType>::AccessViolation;
+		using typename MemoryInterface<AddressType>::ReadOnlyViolation;
 
+		AddressType size() const { return _size; }
+		
 		void load(void* destination, AddressType address, AddressType size) const override {
 			if (address + size > _size) { throw AccessViolation(); }
 			memcpy(destination, _storage + address, size);
